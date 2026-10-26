@@ -21,6 +21,9 @@ export async function GET() {
       FROM alerts AS a
       INNER JOIN shipments AS s
         ON s.shipment_id = a.shipment_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+      )
       ORDER BY
         a.is_resolved ASC,
         FIELD(a.severity, 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'),

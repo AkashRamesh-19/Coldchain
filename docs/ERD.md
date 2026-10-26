@@ -47,6 +47,12 @@ erDiagram
         int route_id FK
         string status
     }
+    NON_OPERATIONAL_SHIPMENTS {
+        int shipment_id PK, FK
+        string shipment_code UK
+        string reason
+        datetime marked_at
+    }
     SHIPMENT_ITEMS {
         int shipment_item_id PK
         int shipment_id FK
@@ -74,6 +80,14 @@ erDiagram
         datetime timestamp
         decimal temperature_C
     }
+    MONGO_RESEARCH_STRAWBERRY_WINDOWS {
+        string _id PK
+        string shipment_id
+        string Time
+        string dataset_revision
+        decimal Front_Top
+        decimal risk_level
+    }
 
     SUPPLIERS ||--o{ PRODUCTS : supplies
     SUPPLIERS ||--o{ SHIPMENTS : ships
@@ -89,6 +103,7 @@ erDiagram
     SHIPMENTS ||--o{ SHIPMENT_STATUS_HISTORY : has_history
     USERS o|--o{ SHIPMENT_STATUS_HISTORY : changed_by
     SHIPMENTS ||--o{ ALERTS : raises
+    SHIPMENTS o|--|| NON_OPERATIONAL_SHIPMENTS : classified_as
     USERS o|--o{ ALERTS : resolves
     SHIPMENTS ||--o{ MONGO_SENSOR_READINGS : linked_by_shipment_id
 ```
@@ -100,8 +115,10 @@ erDiagram
 - `shipment_status_history` and `alerts` belong to a shipment. Optional `changed_by` and `resolved_by` references point to `users`.
 - `routes` references warehouses twice, once as source and once as destination. The labels distinguish the two real foreign keys.
 - The MongoDB document contains a `shipment_id` value, which the application uses to join the readings to the MySQL shipment. MongoDB does not enforce that cross-database relationship.
-- The verified schema also contains `users`, `drivers`, `vehicles`, `suppliers`, `warehouses`, `products`, `routes`, `shipment_items`, `shipment_status_history`, `shipments`, and `alerts` (11 base tables), plus the `shipment_overview` view.
+- `non_operational_shipments` classifies excluded demo rows without deleting shipments or their linked records. Its shipment ID and code are protected by a foreign key and unique key.
+- `research_strawberry_windows` is a separate MongoDB collection. Its `S1`–`S6` IDs are source identifiers, not references to operational MySQL shipments.
+- The schema source contains the 11 original relational tables plus `non_operational_shipments` (12 base tables), and the `shipment_overview` view.
 
 ## Database fit
 
-MySQL is appropriate for entities that need explicit keys, constraints, and multi-table joins: shipments, products, suppliers, inventory items, and alert ownership. MongoDB holds irregular timestamped sensor observations in `sensor_readings`; each document links to a shipment and can be retrieved or aggregated by timestamp. The application performs the association because an SQL foreign key cannot span databases.
+MySQL is appropriate for entities that need explicit keys, constraints, and multi-table joins: shipments, products, suppliers, inventory items, and alert ownership. MongoDB holds operational timestamped observations in `sensor_readings` and published research windows in `research_strawberry_windows`. The application keeps the datasets separate; only operational readings are associated with operational MySQL shipment IDs.

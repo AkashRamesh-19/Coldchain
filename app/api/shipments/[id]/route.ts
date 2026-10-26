@@ -57,7 +57,10 @@ export async function PATCH(
 
   try {
     const [existing] = await pool.execute(
-      "SELECT shipment_id, status FROM shipments WHERE shipment_id = ?",
+      `SELECT s.shipment_id, s.status FROM shipments AS s
+       WHERE s.shipment_id = ? AND NOT EXISTS (
+         SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+       )`,
       [shipmentId]
     );
 

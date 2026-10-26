@@ -5,7 +5,11 @@ import pool from "@/lib/mysql";
 export async function GET() {
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM shipment_overview ORDER BY shipment_id DESC"
+      `SELECT o.* FROM shipment_overview AS o
+       WHERE NOT EXISTS (
+         SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = o.shipment_id
+       )
+       ORDER BY o.shipment_id DESC`
     );
 
     return NextResponse.json({

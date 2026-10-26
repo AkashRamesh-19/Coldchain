@@ -9,6 +9,7 @@ import nextEnv from "@next/env";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
 import { MongoClient } from "mongodb";
+import { buildResearchDocuments, researchDataset, upsertResearchDocuments } from "../lib/research-dataset.mjs";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const quietLogger = { error() {}, warn() {}, info() {}, log() {} };
@@ -361,4 +362,53 @@ test("write API routes mutate only isolated fixtures and persist the expected re
       ["IN_TRANSIT", "DELIVERED"],
     ]);
   });
+});
+
+test("research import is idempotent in the isolated MongoDB test database", async () => {
+  const headers = [
+    "Time", "shipment_id", "Front_Top", "Front_Middle", "Front_Bottom",
+    "Middle_Top", "Middle_Middle", "Middle_Bottom", "Rear_Top", "Rear_Middle", "Rear_Bottom",
+    "T_mean", "risk_level", "y_next_120_R2",
+    ...Array.from({ length: researchDataset.columns - 14 }, (_, index) => `feature_${index}`),
+  ];
+  const values = Array(headers.length).fill(null);
+  for (const [field, value] of Object.entries({ Time: "2019-03-12 12:30:00", shipment_id: "S1", Front_Top: 4.2, T_mean: 4.4, risk_level: 2, y_next_120_R2: 1 })) {
+    values[headers.indexOf(field)] = value;
+  }
+  const document = buildResearchDocuments(headers, [values])[0];
+  const collection = mongoClient.db(mongoTestDatabase).collection("research_strawberry_windows");
+  await collection.createIndex({ dataset_revision: 1, shipment_id: 1, Time: 1 }, { unique: true });
+  await upsertResearchDocuments(collection, [document]);
+  await upsertResearchDocuments(collection, [{ ...document, Front_Top: 4.8 }]);
+  assert.equal(await collection.countDocuments({ dataset_revision: researchDataset.revision }), 1);
+  const stored = await collection.findOne({ _id: document._id });
+  assert.equal(stored.shipment_id, "S1");
+  assert.equal(stored.Time, "2019-03-12 12:30:00");
+  assert.equal(stored.Front_Top, 4.8);
+  assert.equal(stored.Front_Middle, null);
+});
+
+test("classified demo records and their linked records are excluded without deletion", async () => {
+  await adminConnection.execute(
+    "INSERT INTO non_operational_shipments (shipment_id, shipment_code, reason) VALUES (?, ?, ?)",
+    [fixture.shipmentId, `TEST-${suffix}`, "Isolated integration test classification"],
+  );
+  const shipments = await getJson("/api/shipments");
+  assert.equal(shipments.body.shipments.some((row) => row.shipment_id === fixture.shipmentId), false);
+  const alerts = await getJson("/api/alerts");
+  assert.equal(alerts.body.alerts.some((row) => row.shipment_id === fixture.shipmentId), false);
+  const sensors = await getJson(`/api/shipments/${fixture.shipmentId}/sensors`);
+  assert.equal(sensors.response.status, 404);
+  const temperatureCheck = await postPatch(`/api/shipments/${fixture.shipmentId}/check-temperature`, "POST", {});
+  assert.equal(temperatureCheck.response.status, 404);
+  const statusUpdate = await postPatch(`/api/shipments/${fixture.shipmentId}`, "PATCH", { status: "CANCELLED" });
+  assert.equal(statusUpdate.response.status, 404);
+  const resolve = await postPatch(`/api/alerts/${fixture.alertId}`, "PATCH", {});
+  assert.equal(resolve.response.status, 404);
+  const [preservedShipments] = await adminConnection.execute("SELECT shipment_id FROM shipments WHERE shipment_id = ?", [fixture.shipmentId]);
+  const [preservedAlerts] = await adminConnection.execute("SELECT alert_id FROM alerts WHERE alert_id = ?", [fixture.alertId]);
+  const preservedReadings = await mongoClient.db(mongoTestDatabase).collection("sensor_readings").countDocuments({ shipment_id: fixture.shipmentId });
+  assert.equal(preservedShipments.length, 1);
+  assert.equal(preservedAlerts.length, 1);
+  assert.equal(preservedReadings, 2);
 });

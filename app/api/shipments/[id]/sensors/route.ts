@@ -1,5 +1,6 @@
 
 import { NextResponse } from "next/server";
+import pool from "@/lib/mysql";
 import clientPromise from "@/lib/mongodb";
 
 type RouteContext = {
@@ -21,6 +22,17 @@ export async function GET(
   }
 
   try {
+    const [shipmentRows] = await pool.execute(
+      `SELECT s.shipment_id FROM shipments AS s
+       WHERE s.shipment_id = ? AND NOT EXISTS (
+         SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+       )`,
+      [shipmentId],
+    );
+    if ((shipmentRows as Array<{ shipment_id: number }>).length === 0) {
+      return NextResponse.json({ success: false, message: "Operational shipment not found" }, { status: 404 });
+    }
+
     const client = await clientPromise;
     const databaseName = process.env.MONGODB_DATABASE;
 

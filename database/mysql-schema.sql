@@ -153,6 +153,18 @@ CREATE TABLE IF NOT EXISTS `shipments` (
   CONSTRAINT `chk_shipment_warehouses` CHECK ((`source_warehouse_id` <> `destination_warehouse_id`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- Explicitly classify records excluded from operational monitoring without deleting
+-- their shipment, item, history, alert, or sensor documents.
+CREATE TABLE IF NOT EXISTS `non_operational_shipments` (
+  `shipment_id` int NOT NULL,
+  `shipment_code` varchar(50) NOT NULL,
+  `reason` varchar(255) NOT NULL,
+  `marked_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`shipment_id`),
+  UNIQUE KEY `uq_non_operational_shipment_code` (`shipment_code`),
+  CONSTRAINT `fk_non_operational_shipment` FOREIGN KEY (`shipment_id`) REFERENCES `shipments` (`shipment_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 
 -- Table: shipment_items
 CREATE TABLE IF NOT EXISTS `shipment_items` (

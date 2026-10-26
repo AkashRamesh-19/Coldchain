@@ -24,12 +24,14 @@ test("read-only backend GET routes return valid connected data", async () => {
   assert.ok(Array.isArray(shipments.shipments));
   assert.equal(shipments.count, shipments.shipments.length);
 
-  const sensorId = shipments.shipments[0]?.shipment_id ?? 1;
-  const { response: sensorsResponse, body: sensors } = await getJson(`/api/shipments/${sensorId}/sensors`);
-  assert.equal(sensorsResponse.status, 200);
-  assert.equal(sensors.success, true);
-  assert.ok(Array.isArray(sensors.readings));
-  assert.equal(sensors.count, sensors.readings.length);
+  if (shipments.shipments.length > 0) {
+    const sensorId = shipments.shipments[0].shipment_id;
+    const { response: sensorsResponse, body: sensors } = await getJson(`/api/shipments/${sensorId}/sensors`);
+    assert.equal(sensorsResponse.status, 200);
+    assert.equal(sensors.success, true);
+    assert.ok(Array.isArray(sensors.readings));
+    assert.equal(sensors.count, sensors.readings.length);
+  }
 
   const { response: alertsResponse, body: alerts } = await getJson("/api/alerts");
   assert.equal(alertsResponse.status, 200);
@@ -44,7 +46,15 @@ test("read-only backend GET routes return valid connected data", async () => {
   assert.ok(Array.isArray(reports.unresolvedAlertsBySeverity));
   assert.ok(Array.isArray(reports.shipmentCountsByStatus));
   assert.ok(Array.isArray(reports.shipmentOverview));
-  assert.match(reports.dataNote, /simulated/i);
+  assert.match(reports.dataNote, /research dataset analysis is reported separately/i);
+
+  const { response: researchResponse, body: research } = await getJson("/api/research/strawberry");
+  assert.equal(researchResponse.status, 200);
+  assert.equal(research.success, true);
+  assert.ok(Number.isInteger(research.analysis.rowCount));
+  if (research.dataset.status === "imported") assert.equal(research.analysis.rowCount, research.dataset.expectedRows);
+  assert.ok(["imported", "not_imported", "incomplete"].includes(research.dataset.status));
+  assert.match(research.dataset.source, /historical research data/i);
 });
 
 test("sensor route rejects malformed shipment IDs before database work", async () => {

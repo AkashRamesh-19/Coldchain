@@ -1,94 +1,54 @@
 # ColdChain Guardian
 
-ColdChain Guardian is a classroom cold-chain monitoring demo. MySQL stores the structured shipment domain and MongoDB stores timestamped shipment sensor readings. The dashboard combines both sources to show shipment reports and run a product-range temperature check.
+ColdChain Guardian has two separate data areas: operational shipment monitoring and analysis of a published historical strawberry cold-chain dataset. Research rows never become operational shipments, and the research shipment IDs `S1`–`S6` are not mapped to MySQL shipment IDs.
 
-## Architecture
+## Data architecture
 
-- **MySQL** stores suppliers, warehouses, routes, vehicles, drivers, users, products and temperature limits, shipments, shipment items, shipment status history, and alerts. The `shipment_overview` view joins the main shipment and route records.
-- **MongoDB** stores timestamped documents in `sensor_readings`. Each document has a `shipment_id` that links it to a relational shipment. The current demo contains 12 readings across four shipments.
-- **The dashboard** reads the report endpoint. The temperature check compares each shipment reading with the distinct product ranges listed on that shipment and creates at most one unresolved alert for each product, direction, and permitted range.
+- **MySQL** stores operational suppliers, warehouses, routes, vehicles, drivers, users, products, shipments, shipment items, status history, and alerts. `shipment_overview` provides the relational shipment summary.
+- **MongoDB `sensor_readings`** remains the operational sensor collection. Four known classroom demo shipments are classified in `non_operational_shipments`; their shipment rows, readings, alerts, items, and history are preserved but excluded from operational APIs and dashboard reports. Newly created operational shipments remain visible by default.
+- **MongoDB `research_strawberry_windows`** stores every source column from the research workbook, including null values and original shipment IDs and wall-clock timestamps. These are historical research records, not live measurements.
+- **MongoDB `research_dataset_imports`** records the imported file revision, hash, shape, and time.
 
-See [the ER diagram](docs/ERD.md) for primary keys, declared foreign keys, relationships, and the view boundary.
+See [the ER diagram](docs/ERD.md) for the relational tables and relationships.
 
-## Setup
+## Published research dataset
 
-Use Node.js 20.19 or newer (the installed MongoDB driver requires it), install dependencies with `npm install`, and create a local `.env.local` file with these variable names:
+The source is the [Cold-Chain Transportation Strawberry dataset](https://huggingface.co/datasets/NifferLi/Cold-Chain-Transportation-Strawberry), pinned to repository revision `4f9541d8a20616b3c5fedc7d9fd27a8a0b6701dc`, file `article_release/ALL_benchmark_W60.xlsx`. The dataset card declares the **Apache-2.0** license. The verified file SHA-256 is `d35ec35f55fbe602486b6548c921327de0f1b7b2c8673ecd838dc0e3236d8d36`. It contains one `data` worksheet with 14,398 rows and 107 columns across shipments `S1`–`S6`, including nine probe measurements, processed features, labels, and missing values. The source card describes 10-minute sampling. The importer checks the pinned file hash, expected shape, columns, and shipment identifiers before writing.
 
-```text
-MYSQL_HOST=
-MYSQL_PORT=3306
-MYSQL_USER=
-MYSQL_PASSWORD=
-MYSQL_DATABASE=
-MONGODB_URI=
-MONGODB_DATABASE=
-```
+The importer preserves the source columns and values, converts blank cells to MongoDB `null`, and stores Excel timestamps as timezone-free `YYYY-MM-DD HH:mm:ss` strings. Each record's `_id` is derived from dataset ID, source shipment ID, and source timestamp; importing again replaces the same records rather than duplicating them. Data is stored separately from operational MongoDB documents.
 
-Fill values from your own local database setup. `.env.local` is ignored by Git. For a new, empty database, `database/mysql-schema.sql` contains the inspected MySQL tables, keys, view, trigger, and stored procedure without application data. It is an initialization script, not a migration; do not run it over an existing schema. There is no seed script. Start the app with `npm run dev` and open <http://localhost:3000>.
+## Setup and import
+
+Use Node.js 20.19 or newer, run `npm install`, and create `.env.local` with your local MySQL and MongoDB configuration. Keep `.env.local` private; it is ignored by Git. The values required are `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, `MONGODB_URI`, and `MONGODB_DATABASE`.
+
+For a new empty MySQL database, `database/mysql-schema.sql` initializes the schema. It is not an existing-database migration. For the inspected development database, apply `database/migrations/001-exclude-known-demo-shipments.sql` once. This additive migration only creates the classification table and tags the four exact audited ID/code pairs; it does not delete records. Review the IDs and codes against your target database before applying it to a different installation.
+
+Run `npm run import:research` to download, verify, and import the pinned workbook into `research_strawberry_windows`. The script does not write to MySQL or `sensor_readings`. Start the dashboard with `npm run dev`.
 
 ## API routes
 
 | Route | Method | Purpose |
 | --- | --- | --- |
-| `/api/reports` | GET | Shipment averages, temperature excursion counts, unresolved alerts by severity, shipment counts by status, and the joined shipment overview. |
-| `/api/shipments` | GET | List rows from `shipment_overview`. |
-| `/api/shipments/[id]` | PATCH | Update shipment status; the installed MySQL trigger writes status history. |
-| `/api/shipments/[id]/sensors` | GET | Read timestamped MongoDB readings for a shipment. |
-| `/api/shipments/[id]/check-temperature` | POST | Compare MongoDB readings to MySQL product limits and create deduplicated unresolved temperature alerts. This endpoint writes alerts. |
-| `/api/alerts` | GET | List shipment alerts. |
-| `/api/alerts/[id]` | PATCH | Resolve an alert. |
-| `/api/db-test` | GET | Check MySQL connectivity and table count. |
-| `/api/mongo-test` | GET | Check MongoDB connectivity and reading count. |
+| `/api/reports` | GET | Operational shipment counts, alerts, temperature summaries, and shipment overview; excludes classified demo shipments. |
+| `/api/shipments` | GET | List operational shipments. |
+| `/api/shipments/[id]` | PATCH | Update status for an operational shipment. |
+| `/api/shipments/[id]/sensors` | GET | Read operational MongoDB sensor readings for an operational shipment. |
+| `/api/shipments/[id]/check-temperature` | POST | Compare operational readings with product limits and write deduplicated unresolved alerts. |
+| `/api/alerts` | GET | List alerts belonging to operational shipments. |
+| `/api/alerts/[id]` | PATCH | Resolve an alert belonging to an operational shipment. |
+| `/api/research/strawberry` | GET | Return dynamic counts and aggregates from the imported research collection. |
 
-The report SQL examples are in [docs/reports.sql](docs/reports.sql). `/api/reports` returns averages and excursion counts with units and field names. Example results from the inspected local demo data:
+Research analyses include per-shipment window counts, mean `T_mean`, risk label counts, missing risk labels, missing values for each probe, future `y_next_120_R2` label counts, and the stored time range. If the import is absent or incomplete, the endpoint and dashboard report that state; they do not substitute example values. Operational sections show empty states when no operational records exist.
 
-| Shipment ID | Average recorded temperature | Readings | Excursion readings | Out-of-range product comparisons |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 4.65 °C | 4 | 0 | 0 |
-| 2 | 6.97 °C | 3 | 1 | 1 |
-| 3 | 3.57 °C | 3 | 1 | 1 |
-| 4 | 4.15 °C | 2 | 0 | 0 |
+## Interpretation
 
-Other inspected report results: unresolved alerts are `MEDIUM: 2`; shipment status counts are `DELIVERED: 1`, `DELAYED: 2`, `IN_TRANSIT: 1`.
+Research features and labels are from the published historical benchmark. They do not represent current freight or live sensor telemetry. Operational readings are evaluated only against MySQL product limits for shipments classified as operational. A shipment sensor is not assigned to an individual shipment item, so an excursion indicates that at least one carried product range was exceeded; it does not establish that a specific product was damaged.
 
-## Data and interpretation
+## Verification
 
-The existing MongoDB readings were described as simulated demo data and are not live hardware measurements. The source field is not present in the inspected sensor document shape, so the application labels them as demo/simulated rather than making a hardware claim.
+- `npm run test:backend` runs backend unit checks and read-only API smoke checks (the smoke test needs the app running and configured databases).
+- `npm run test:backend:write` runs write-path integration tests using temporary, isolated MySQL and MongoDB databases; it requires permission to create and drop those temporary databases.
+- `npm run lint` runs ESLint.
+- `npm run build` creates a production build.
 
-The reading is linked to a shipment, not to a particular shipment item or product. For an excursion report, one timestamp counts once if it falls outside at least one carried product’s limits; `outOfRangeProductComparisons` separately counts each reading-to-product-range comparison that was outside the range. This is a conservative shipment-level comparison, not evidence that the specific product itself reached that temperature. The checker uses the same documented comparison and records the product, direction, product limit, measured temperature and limit in its alert fields/message. It serializes checks for the same shipment to avoid duplicate unresolved alerts on concurrent requests. There is no database unique constraint, so administrators should treat this as application-level idempotency.
-
-## Project contribution
-
-The concrete contribution is an explainable workflow that reads product-specific allowed ranges from MySQL, compares them with timestamped shipment readings in MongoDB, identifies out-of-range readings, and records deduplicated unresolved alerts against the relational shipment. This combines product metadata, two storage models, timestamped observations, and alert lifecycle handling instead of applying one global hard-coded temperature threshold.
-
-This is a project implementation contribution, not a claim that the general idea is unprecedented or scientifically novel. Limits include the simulated readings, no per-item sensor assignment, a simple fixed severity rule, no alert audit trail for each reading, and no real hardware ingestion pipeline.
-
-## Dataset review
-
-`C:\Users\sudha\Downloads\ALL_benchmark_W60.xlsx` was accessible during project inspection. It has one sheet (`data`), 14,398 data rows, and 107 columns. Its columns include nine spatial readings (`Front_*`, `Middle_*`, `Rear_*`), derived W60/v4 features, data quality and guardrail fields, risk labels, and future-risk labels. The workbook encodes time as Excel dates and temperatures as numeric Celsius-like values, but its workbook does not provide unit annotations in the headers. The Hugging Face dataset card documents the processed benchmark, sampling and columns and lists an Apache-2.0 license; the associated paper describes the strawberry cold-chain dataset. Links: [Hugging Face dataset card](https://huggingface.co/datasets/NifferLi/Cold-Chain-Transportation-Strawberry), [associated paper](https://arxiv.org/abs/2103.12895).
-
-The research workbook is not loaded into either operational database. Its shipment identifiers (for example `S1`) and 10-minute research windows do not match the local demo shipment IDs or the existing readings. Keeping it separate avoids silently relabeling research observations as local shipment or simulated data. It can be discussed as a future offline analysis dataset, with its source, transformations, and labels kept explicit.
-
-## Demo sequence
-
-1. Start with `npm run dev` and open the dashboard at `http://localhost:3000`.
-2. Point out the shipment overview and explain that it comes from the MySQL `shipment_overview` view.
-3. Show the average temperatures and excursion counts. Say MongoDB supplies timestamped readings and MySQL supplies each shipment’s product ranges; an excursion is counted once per reading if any carried range is exceeded.
-4. Show the unresolved alert and shipment status summaries, then open `/api/reports` to show the JSON response and explicit data note.
-5. Open `/api/shipments/1/sensors` (or another displayed ID) to show the shipment ID joining MongoDB readings to MySQL shipments.
-6. If you want to demonstrate alert creation, click **Check temperatures** for a shipment. This POST can write an alert; show the result message and refresh the unresolved alert report. Resolve it through the alert PATCH route if your lecturer asks to see that lifecycle.
-7. Open [docs/ERD.md](docs/ERD.md) and walk through the shipment, shipment item, product, supplier, alert and status history relationships.
-
-## Viva questions
-
-- **Why both MySQL and MongoDB?** MySQL enforces structured entities, keys, and relationships; MongoDB stores timestamped sensor observations naturally by shipment.
-- **How are the databases connected?** A numeric `shipment_id` in each MongoDB reading corresponds to `shipments.shipment_id` in MySQL. The application combines the records; there is no cross-database foreign key.
-- **What is the project-specific contribution?** It brings product-specific limits from relational data together with shipment sensor time series to identify and deduplicate excursion alerts.
-- **Can a reading be assigned to one product?** No. The current schema links the sensor reading only to a shipment, so the report compares it to all distinct product ranges and documents this limitation.
-- **Are these hardware readings?** No. The existing samples are demo readings described as simulated; there is no verified live sensor source.
-- **What does an excursion count mean?** One shipment reading outside at least one carried product range. It is not a count of actual damaged products.
-- **Is the approach unprecedented?** No such claim is made; it is a practical, explainable integration built for this project.
-
-## Checks
-
-The project scripts are `npm run lint`, `npm run build`, `npm run test:backend`, and `npm run test:backend:write`. The read-only smoke suite requires the app running at `http://localhost:3000`; set `BACKEND_TEST_URL` to use another local server. It checks schema source structure, connectivity, shipments, sensors, alerts, reports, and invalid shipment ID handling. The write-path suite loads local configuration without printing it, creates uniquely named temporary MySQL and MongoDB databases, starts the built API with those database names, and verifies alert creation/deduplication, alert resolution, shipment status updates, and the status-history trigger. It requires permission to create and drop databases. The suite checks the API's reported database names before sending any mutation request and drops its temporary databases during cleanup. The report GET route is read-only; status changes, alert resolution, and temperature checks can write to MySQL.
+Research unit tests verify source IDs and timestamps, stable idempotency keys, source null handling, record counts, label counts, and aggregation results. The research importer writes only its dedicated collection and manifest. It does not seed operational data.

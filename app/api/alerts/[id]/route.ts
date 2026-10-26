@@ -50,11 +50,17 @@ export async function PATCH(
 
   try {
     const [result] = await pool.execute(
-      `UPDATE alerts
+      `UPDATE alerts AS a
        SET is_resolved = 1,
            resolved_by = ?,
            resolved_at = CURRENT_TIMESTAMP
-       WHERE alert_id = ? AND is_resolved = 0`,
+       WHERE a.alert_id = ? AND a.is_resolved = 0
+         AND EXISTS (
+           SELECT 1 FROM shipments AS s
+           WHERE s.shipment_id = a.shipment_id AND NOT EXISTS (
+             SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+           )
+         )`,
       [resolvedBy, alertId]
     );
 
@@ -62,9 +68,12 @@ export async function PATCH(
 
     if (updateResult.affectedRows === 0) {
       const [rows] = await pool.execute(
-        `SELECT alert_id, is_resolved, resolved_by, resolved_at
-         FROM alerts
-         WHERE alert_id = ?`,
+        `SELECT a.alert_id, a.is_resolved, a.resolved_by, a.resolved_at
+         FROM alerts AS a
+         INNER JOIN shipments AS s ON s.shipment_id = a.shipment_id
+         WHERE a.alert_id = ? AND NOT EXISTS (
+           SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+         )`,
         [alertId]
       );
 

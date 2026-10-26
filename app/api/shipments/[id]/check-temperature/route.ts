@@ -43,7 +43,10 @@ export async function POST(
     // Serialize checks for this shipment so two concurrent requests cannot both
     // create the same still-unresolved product/direction alert.
     const [shipmentRows] = await connection.execute(
-      "SELECT shipment_id FROM shipments WHERE shipment_id = ? FOR UPDATE",
+      `SELECT s.shipment_id FROM shipments AS s
+       WHERE s.shipment_id = ? AND NOT EXISTS (
+         SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+       ) FOR UPDATE`,
       [shipmentId],
     );
 

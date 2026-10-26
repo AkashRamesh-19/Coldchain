@@ -18,25 +18,34 @@ type SensorReading = {
 
 export async function GET() {
   try {
-    const [statusRows, alertRows, overviewRows, productRows] = await Promise.all([
+    const [statusRows, alertRows, overviewRows, productRows, operationalRows] = await Promise.all([
       pool.query(`
-        SELECT status, COUNT(*) AS shipment_count
-        FROM shipments
-        GROUP BY status
-        ORDER BY status
+        SELECT s.status, COUNT(*) AS shipment_count
+        FROM shipments AS s
+        WHERE NOT EXISTS (
+          SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+        )
+        GROUP BY s.status
+        ORDER BY s.status
       `),
       pool.query(`
-        SELECT severity, COUNT(*) AS unresolved_count
-        FROM alerts
-        WHERE is_resolved = 0
-        GROUP BY severity
-        ORDER BY FIELD(severity, 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW')
+        SELECT a.severity, COUNT(*) AS unresolved_count
+        FROM alerts AS a
+        INNER JOIN shipments AS s ON s.shipment_id = a.shipment_id
+        WHERE a.is_resolved = 0 AND NOT EXISTS (
+          SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+        )
+        GROUP BY a.severity
+        ORDER BY FIELD(a.severity, 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW')
       `),
       pool.query(`
         SELECT shipment_id, shipment_code, supplier_name, source_warehouse,
                destination_warehouse, vehicle_number, driver_name, route_name,
                distance_km, shipment_date, expected_delivery, actual_delivery, status
-        FROM shipment_overview
+        FROM shipment_overview AS o
+        WHERE NOT EXISTS (
+          SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = o.shipment_id
+        )
         ORDER BY shipment_id
       `),
       pool.query(`
@@ -44,7 +53,16 @@ export async function GET() {
                p.min_temperature, p.max_temperature
         FROM shipment_items AS si
         INNER JOIN products AS p ON p.product_id = si.product_id
+        WHERE NOT EXISTS (
+          SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = si.shipment_id
+        )
         ORDER BY si.shipment_id, p.product_id
+      `),
+      pool.query(`
+        SELECT s.shipment_id FROM shipments AS s
+        WHERE NOT EXISTS (
+          SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+        )
       `),
     ]);
 
@@ -55,7 +73,7 @@ export async function GET() {
     const readings = await client
       .db(databaseName)
       .collection<SensorReading>("sensor_readings")
-      .find({}, { projection: { _id: 0, shipment_id: 1, timestamp: 1, temperature: 1 } })
+      .find({ shipment_id: { $in: (operationalRows[0] as Array<{ shipment_id: number }>).map((row) => row.shipment_id) } }, { projection: { _id: 0, shipment_id: 1, timestamp: 1, temperature: 1 } })
       .sort({ shipment_id: 1, timestamp: 1 })
       .toArray();
 
@@ -112,7 +130,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      dataNote: "Existing demo readings are reported as simulated; no hardware provenance is recorded.",
+      dataNote: "Operational readings are linked only to shipments classified as operational. Research dataset analysis is reported separately.",
       temperatureByShipment,
       unresolvedAlertsBySeverity: alertRows[0],
       shipmentCountsByStatus: statusRows[0],

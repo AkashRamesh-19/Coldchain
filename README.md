@@ -24,7 +24,7 @@ MONGODB_URI=
 MONGODB_DATABASE=
 ```
 
-Fill values from your own local database setup. `.env.local` is ignored by Git. The database must already contain the schema and view described in `docs/ERD.md`; this project does not currently include a schema migration or a seed script. Start the app with `npm run dev` and open <http://localhost:3000>.
+Fill values from your own local database setup. `.env.local` is ignored by Git. For a new, empty database, `database/mysql-schema.sql` contains the inspected MySQL tables, keys, view, trigger, and stored procedure without application data. It is an initialization script, not a migration; do not run it over an existing schema. There is no seed script. Start the app with `npm run dev` and open <http://localhost:3000>.
 
 ## API routes
 
@@ -91,4 +91,4 @@ The research workbook is not loaded into either operational database. Its shipme
 
 ## Checks
 
-The project scripts are `npm run lint` and `npm run build`. Run these after dependencies and local database configuration are ready. The report GET route is read-only; status changes, alert resolution, and temperature checks can write to MySQL.
+The project scripts are `npm run lint`, `npm run build`, and `npm run test:backend`. Backend tests require the app running at `http://localhost:3000`; set `BACKEND_TEST_URL` to use another local server. They check schema source structure, connectivity, shipments, sensors, alerts, reports, and invalid shipment ID handling. They intentionally do not invoke write endpoints. Temperature-check alert creation/deduplication and alert resolution still need isolated-database integration tests before those write paths can be called fully tested. The report GET route is read-only; status changes, alert resolution, and temperature checks can write to MySQL.

@@ -56,10 +56,20 @@ export default function Home() {
   const [checking, setChecking] = useState<number | null>(null);
   const [actionMessage, setActionMessage] = useState("");
 
+  const expireSession = useCallback(() => {
+    setAuthError("Your session has expired. Sign in again to continue.");
+    setUser(null);
+    setReports(null);
+    setResearch(null);
+    setLoading(false);
+    setActionMessage("");
+  }, []);
+
   const loadReports = useCallback(async () => {
     try {
       const response = await fetch("/api/reports", { cache: "no-store" });
       const body = await response.json();
+      if (response.status === 401) { expireSession(); return; }
       if (!response.ok || !body.success) throw new Error(body.message ?? "Could not load reports.");
       setReports(body);
       setError("");
@@ -68,19 +78,20 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [expireSession]);
 
   const loadResearch = useCallback(async () => {
     try {
       const response = await fetch("/api/research/strawberry", { cache: "no-store" });
       const body = await response.json();
+      if (response.status === 401) { expireSession(); return; }
       if (!response.ok || !body.success) throw new Error(body.message ?? "Could not load research analysis.");
       setResearch(body);
       setResearchError("");
     } catch (caught) {
       setResearchError(caught instanceof Error ? caught.message : "Could not load research analysis.");
     }
-  }, []);
+  }, [expireSession]);
 
   const activateSession = useCallback(async (signedIn: SessionUser) => {
     setUser(signedIn);
@@ -119,6 +130,7 @@ export default function Home() {
     try {
       const response = await fetch(`/api/shipments/${shipmentId}/check-temperature`, { method: "POST" });
       const body = await response.json();
+      if (response.status === 401) { expireSession(); return; }
       if (!response.ok || !body.success) throw new Error(body.message ?? "Temperature check failed.");
       setActionMessage(
         `Shipment ${shipmentId}: checked ${body.readingsChecked} readings, found ${body.excursionReadingCount} excursion readings, and created ${body.alertsCreated} new alerts.`,
@@ -189,8 +201,8 @@ export default function Home() {
       </header>
 
       <section aria-label="Project status" className="mt-7 grid gap-4 sm:grid-cols-3">
-        <Metric label="Shipments" value={loading ? "—" : String(totalShipments)} detail="Current relational records" />
-        <Metric label="Unresolved alerts" value={loading ? "—" : String(totalUnresolved)} detail="Grouped by severity below" />
+        <Metric label="Shipments" value={loading || !reports ? "—" : String(totalShipments)} detail="Current relational records" />
+        <Metric label="Unresolved alerts" value={loading || !reports ? "—" : String(totalUnresolved)} detail="Grouped by severity below" />
         <Metric label="Research windows" value={research ? String(research.analysis.rowCount) : "—"} detail="Imported historical dataset records" />
       </section>
 

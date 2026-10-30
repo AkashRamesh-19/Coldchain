@@ -5,11 +5,15 @@ ColdChain Guardian has two separate data areas: operational shipment monitoring 
 ## Data architecture
 
 - **MySQL** stores operational suppliers, warehouses, routes, vehicles, drivers, users, products, shipments, shipment items, status history, and alerts. `shipment_overview` provides the relational shipment summary.
+- **MySQL `shipment_assignments`** links operations staff to the shipments they may view and update. Shipment creation is transactional across the shipment, items, assignment, vehicle/driver reservation, and initial status history.
 - **MongoDB `sensor_readings`** remains the operational sensor collection. Four known classroom demo shipments are classified in `non_operational_shipments`; their shipment rows, readings, alerts, items, and history are preserved but excluded from operational APIs and dashboard reports. Newly created operational shipments remain visible by default.
 - **MongoDB `research_strawberry_windows`** stores every source column from the research workbook, including null values and original shipment IDs and wall-clock timestamps. These are historical research records, not live measurements.
 - **MongoDB `research_dataset_imports`** records the imported file revision, hash, shape, and time.
+- **MongoDB `user_sessions`** stores only hashed random session tokens with expiration; a TTL index expires old sessions.
 
-See [the ER diagram](docs/ERD.md) for the relational tables and relationships.
+The synopsis names PostgreSQL, while the approved Level 3 requirements allow either MySQL or PostgreSQL. This project uses MySQL because its existing tables, trigger, procedure, and data are implemented there; no PostgreSQL claim is made.
+
+See the [editable ER diagram source](docs/ERD.md), [ER diagram image](docs/ER_Diagram.png), [requirements traceability checklist](docs/requirements-traceability.md), and [verification results](docs/test-results.md) for database relationships and project evidence.
 
 ## Published research dataset
 
@@ -19,11 +23,13 @@ The importer preserves the source columns and values, converts blank cells to Mo
 
 ## Setup and import
 
-Use Node.js 20.19 or newer, run `npm install`, and create `.env.local` with your local MySQL and MongoDB configuration. Keep `.env.local` private; it is ignored by Git. The values required are `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, `MONGODB_URI`, and `MONGODB_DATABASE`.
+Use Node.js 20.19 or newer and MySQL 8+ (the schema uses enforced CHECK constraints). Run `npm install`, copy `.env.example` to `.env.local`, and replace placeholders locally. Keep `.env.local` private; it is ignored by Git. Required values are `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, `MONGODB_URI`, and `MONGODB_DATABASE`.
 
-For a new empty MySQL database, `database/mysql-schema.sql` initializes the schema. It is not an existing-database migration. For the inspected development database, apply `database/migrations/001-exclude-known-demo-shipments.sql` once. This additive migration only creates the classification table and tags the four exact audited ID/code pairs; it does not delete records. Review the IDs and codes against your target database before applying it to a different installation.
+For a new empty MySQL database, `database/mysql-schema.sql` initializes the schema. It is not an existing-database migration. For an existing database, inspect and apply `database/migrations/001-exclude-known-demo-shipments.sql` only if its guarded demo classification is appropriate, followed by `database/migrations/002-shipment-assignments.sql`. Migration 002 only creates an assignment table and leaves current records unchanged. Do not apply migration 001 blindly to another installation; verify its IDs and codes first. For a new database with no users, `npm run bootstrap:admin` interactively creates the first administrator with hidden password input. It refuses to run when any account exists.
 
-Run `npm run import:research` to download, verify, and import the pinned workbook into `research_strawberry_windows`. The script does not write to MySQL or `sensor_readings`. Start the dashboard with `npm run dev`.
+Run `npm run setup:mongodb` to create operational reading, research uniqueness, and session-expiry indexes. The operation is additive and idempotent. Then run `npm run import:research` to download and verify the pinned historical dataset.
+
+The importer writes only `research_strawberry_windows` and `research_dataset_imports`; it does not write to MySQL or operational `sensor_readings`. Start the application with `npm run dev` or `npm run build && npm start`.
 
 ## API routes
 
@@ -31,14 +37,20 @@ Run `npm run import:research` to download, verify, and import the pinned workboo
 | --- | --- | --- |
 | `/api/reports` | GET | Operational shipment counts, alerts, temperature summaries, and shipment overview; excludes classified demo shipments. |
 | `/api/shipments` | GET | List operational shipments. |
-| `/api/shipments/[id]` | PATCH | Update status for an operational shipment. |
-| `/api/shipments/[id]/sensors` | GET | Read operational MongoDB sensor readings for an operational shipment. |
-| `/api/shipments/[id]/check-temperature` | POST | Compare operational readings with product limits and write deduplicated unresolved alerts. |
+| `/api/shipments` | POST | Transactionally create a shipment, item rows, optional staff assignments, resource reservation, and initial history. |
+| `/api/shipments/{id}` | GET/PATCH | Shipment details and history; allowed status transitions. |
+| `/api/shipments/[id]/sensors` | GET/POST | Read or validated, idempotently ingest operational sensor readings. |
+| `/api/shipments/[id]/check-temperature` | POST | Compare temperature and available humidity readings with product limits; write deduplicated unresolved alerts. |
 | `/api/alerts` | GET | List alerts belonging to operational shipments. |
 | `/api/alerts/[id]` | PATCH | Resolve an alert belonging to an operational shipment. |
-| `/api/research/strawberry` | GET | Return dynamic counts and aggregates from the imported research collection. |
+| `/api/research/strawberry` | GET | Return filtered historical analysis; supports `shipmentId`, `start`, `end`, and an optional min/max temperature threshold pair. |
+| `/api/catalog/{suppliers,products,warehouses,vehicles,drivers,routes}` | GET/POST/PATCH/DELETE | Role-protected reference-data management; deletes are restricted to unreferenced rows and admin role. |
+| `/api/auth/login`, `/api/auth/logout`, `/api/auth/me` | POST/GET | Bcrypt login, HttpOnly cookie session, logout, current identity. |
+| `/api/users` and `/api/users/{id}` | GET/POST/PATCH | Administrator-only account management. Password hashes are never returned. |
 
-Research analyses include per-shipment window counts, mean `T_mean`, risk label counts, missing risk labels, missing values for each probe, future `y_next_120_R2` label counts, and the stored time range. If the import is absent or incomplete, the endpoint and dashboard report that state; they do not substitute example values. Operational sections show empty states when no operational records exist.
+See [API contracts](docs/API.md) and [MongoDB model](docs/MONGODB.md) for exact fields, roles, limits, and response examples. Operational endpoints require a session cookie or bearer token. The existing dashboard page is preserved; its frontend still needs login/session wiring before protected operational data and write actions are available in the UI.
+
+Research analyses include per-shipment window counts, mean `T_mean`, raw-probe temperature statistics and trends, configurable threshold excursions, risk label counts, missing values for each probe, future `y_next_120_R2` label counts, and the stored time range. Shipment and timezone-free date/time filters can be combined. If the import is absent or incomplete, the endpoint and dashboard report that state; they do not substitute example values. Operational sections show empty states when no operational records exist.
 
 ## Interpretation
 
@@ -50,5 +62,9 @@ Research features and labels are from the published historical benchmark. They d
 - `npm run test:backend:write` runs write-path integration tests using temporary, isolated MySQL and MongoDB databases; it requires permission to create and drop those temporary databases.
 - `npm run lint` runs ESLint.
 - `npm run build` creates a production build.
+
+The SQL deliverables demonstrate normalized related tables, primary/foreign/unique/check constraints, views, a status-history trigger, an alert procedure, transactions in shipment creation, filtered multi-table reports, GROUP BY/aggregates, a correlated non-operational exclusion, and indexed lookups. MongoDB uses flexible operational observation documents, a pinned research document model, aggregation pipelines, and explicit indexes.
+
+The system simulates sensor input through the authenticated sensor API; it does not require physical sensors, GPS infrastructure, live freight integrations, or predictive ML. Assignment-level operation access is enforced for operational APIs. Rate limiting, multi-factor authentication, production identity integration, and frontend login UI are outside this backend phase and remain handover work.
 
 Research unit tests verify source IDs and timestamps, stable idempotency keys, source null handling, record counts, label counts, and aggregation results. The research importer writes only its dedicated collection and manifest. It does not seed operational data.

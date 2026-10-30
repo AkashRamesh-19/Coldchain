@@ -2,16 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const baseUrl = (process.env.BACKEND_TEST_URL ?? "http://localhost:3000").replace(/\/$/, "");
+const bearerToken = process.env.BACKEND_TEST_BEARER;
 
 async function getJson(path) {
   const response = await fetch(`${baseUrl}${path}`, {
     signal: AbortSignal.timeout(10_000),
+    headers: bearerToken ? { authorization: `Bearer ${bearerToken}` } : undefined,
   });
   const body = await response.json();
   return { response, body };
 }
 
-test("read-only backend GET routes return valid connected data", async () => {
+test("read-only backend GET routes return valid connected data", { skip: !bearerToken && "Set BACKEND_TEST_BEARER for authenticated smoke checks against a running server." }, async () => {
   for (const path of ["/api/db-test", "/api/mongo-test"]) {
     const { response, body } = await getJson(path);
     assert.equal(response.status, 200, `${path} status`);
@@ -57,7 +59,7 @@ test("read-only backend GET routes return valid connected data", async () => {
   assert.match(research.dataset.source, /historical research data/i);
 });
 
-test("sensor route rejects malformed shipment IDs before database work", async () => {
+test("sensor route rejects malformed shipment IDs before database work", { skip: !process.env.BACKEND_TEST_URL && !bearerToken && "Set BACKEND_TEST_URL when an API server is running." }, async () => {
   const { response, body } = await getJson("/api/shipments/not-a-number/sensors");
   assert.equal(response.status, 400);
   assert.equal(body.success, false);

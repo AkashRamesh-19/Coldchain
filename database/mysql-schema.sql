@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS `users` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 
+
 -- Table: products
 CREATE TABLE IF NOT EXISTS `products` (
   `product_id` int NOT NULL AUTO_INCREMENT,
@@ -151,6 +152,20 @@ CREATE TABLE IF NOT EXISTS `shipments` (
   CONSTRAINT `fk_shipment_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles` (`vehicle_id`),
   CONSTRAINT `chk_shipment_delivery_dates` CHECK ((`expected_delivery` >= `shipment_date`)),
   CONSTRAINT `chk_shipment_warehouses` CHECK ((`source_warehouse_id` <> `destination_warehouse_id`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Operations staff are limited to shipments explicitly assigned to their account.
+CREATE TABLE IF NOT EXISTS `shipment_assignments` (
+  `shipment_id` int NOT NULL,
+  `user_id` int NOT NULL,
+  `assigned_by` int DEFAULT NULL,
+  `assigned_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`shipment_id`,`user_id`),
+  KEY `idx_shipment_assignments_user` (`user_id`,`shipment_id`),
+  KEY `fk_shipment_assignments_assigned_by` (`assigned_by`),
+  CONSTRAINT `fk_shipment_assignments_shipment` FOREIGN KEY (`shipment_id`) REFERENCES `shipments` (`shipment_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_shipment_assignments_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_shipment_assignments_assigned_by` FOREIGN KEY (`assigned_by`) REFERENCES `users` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Explicitly classify records excluded from operational monitoring without deleting

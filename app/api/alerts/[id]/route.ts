@@ -1,6 +1,7 @@
 
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
+import { authorize, managerAndAdmin } from "@/lib/auth";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -31,8 +32,6 @@ export async function PATCH(
     );
   }
 
-  let resolvedBy: number | null = null;
-
   if (body.resolved_by !== undefined && body.resolved_by !== null) {
     if (
       typeof body.resolved_by !== "number" ||
@@ -45,10 +44,15 @@ export async function PATCH(
       );
     }
 
-    resolvedBy = body.resolved_by;
   }
 
   try {
+    const access = await authorize(request, managerAndAdmin);
+    if ("response" in access) return access.response;
+    if (body.resolved_by !== undefined && body.resolved_by !== null && body.resolved_by !== access.user.user_id) {
+      return NextResponse.json({ success: false, message: "resolved_by must match the authenticated user" }, { status: 400 });
+    }
+    const resolvedBy = access.user.user_id;
     const [result] = await pool.execute(
       `UPDATE alerts AS a
        SET is_resolved = 1,

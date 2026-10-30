@@ -1,5 +1,9 @@
 # ColdChain Guardian ER diagram
 
+![ColdChain Guardian relational and document data model](ER_Diagram.png)
+
+The generated PNG and SVG are kept beside this editable Mermaid source.
+
 This diagram reflects the connected local MySQL schema inspected on 26 October 2026. It shows declared foreign keys from `information_schema`; the lines do not infer any undocumented relationship. `shipment_overview` is a view, not a base table. MongoDB readings are shown separately because MySQL cannot declare a foreign key into MongoDB.
 
 ```mermaid
@@ -59,6 +63,12 @@ erDiagram
         int product_id FK
         decimal quantity
     }
+    SHIPMENT_ASSIGNMENTS {
+        int shipment_id PK, FK
+        int user_id PK, FK
+        int assigned_by FK
+        datetime assigned_at
+    }
     SHIPMENT_STATUS_HISTORY {
         int history_id PK
         int shipment_id FK
@@ -88,6 +98,11 @@ erDiagram
         decimal Front_Top
         decimal risk_level
     }
+    MONGO_USER_SESSIONS {
+        string token_hash PK
+        int user_id
+        datetime expires_at
+    }
 
     SUPPLIERS ||--o{ PRODUCTS : supplies
     SUPPLIERS ||--o{ SHIPMENTS : ships
@@ -99,6 +114,9 @@ erDiagram
     VEHICLES ||--o{ SHIPMENTS : assigned_to
     ROUTES ||--o{ SHIPMENTS : follows
     SHIPMENTS ||--o{ SHIPMENT_ITEMS : contains
+    SHIPMENTS ||--o{ SHIPMENT_ASSIGNMENTS : assigned_to
+    USERS ||--o{ SHIPMENT_ASSIGNMENTS : assigned_user
+    USERS o|--o{ SHIPMENT_ASSIGNMENTS : assigned_by
     PRODUCTS ||--o{ SHIPMENT_ITEMS : listed_as
     SHIPMENTS ||--o{ SHIPMENT_STATUS_HISTORY : has_history
     USERS o|--o{ SHIPMENT_STATUS_HISTORY : changed_by
@@ -113,11 +131,13 @@ erDiagram
 - A shipment references its supplier, origin and destination warehouses, vehicle, driver, and route through the foreign keys declared on `shipments`.
 - A shipment can contain multiple products through `shipment_items`; each item stores quantity and unit weight. Product temperature limits are stored on `products`.
 - `shipment_status_history` and `alerts` belong to a shipment. Optional `changed_by` and `resolved_by` references point to `users`.
+- `shipment_assignments` maps operations staff users to shipments. It also records the manager/admin account that made the assignment; the composite primary key prevents duplicate assignment rows.
 - `routes` references warehouses twice, once as source and once as destination. The labels distinguish the two real foreign keys.
 - The MongoDB document contains a `shipment_id` value, which the application uses to join the readings to the MySQL shipment. MongoDB does not enforce that cross-database relationship.
 - `non_operational_shipments` classifies excluded demo rows without deleting shipments or their linked records. Its shipment ID and code are protected by a foreign key and unique key.
 - `research_strawberry_windows` is a separate MongoDB collection. Its `S1`–`S6` IDs are source identifiers, not references to operational MySQL shipments.
-- The schema source contains the 11 original relational tables plus `non_operational_shipments` (12 base tables), and the `shipment_overview` view.
+- `user_sessions` is a separate MongoDB collection. Its `user_id` refers to MySQL users at the application layer and is not a cross-database foreign key.
+- The schema source contains the original 11 relational tables plus `non_operational_shipments` and `shipment_assignments` (13 base tables), and the `shipment_overview` view.
 
 ## Database fit
 

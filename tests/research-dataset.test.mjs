@@ -53,7 +53,7 @@ test("research summaries count shipments, labels, missing probes, and missing fu
     sourceRow({ time: "2019-03-12 12:30:00", shipment: "S1", top: 4.1, mean: 4.2, risk: 2, future: 1 }),
     sourceRow({ time: "2019-03-12 12:40:00", shipment: "S2", top: null, mean: 5.2, risk: null, future: null }),
   ]);
-  const summary = summarizeResearchRows(rows);
+  const summary = summarizeResearchRows(rows, { minimumC: 4.2, maximumC: 4.5 });
   assert.equal(summary.rowCount, 2);
   assert.equal(summary.shipmentCounts.S1, 1);
   assert.equal(summary.shipmentCounts.S2, 1);
@@ -61,6 +61,15 @@ test("research summaries count shipments, labels, missing probes, and missing fu
   assert.equal(summary.riskLevelCounts["2"], 1);
   assert.equal(summary.missingRiskLevelCount, 1);
   assert.equal(summary.missingProbeCounts.Front_Top, 1);
+  assert.equal(summary.temperatureStats.probeMeasurementsCounted, 1);
+  assert.equal(summary.temperatureStats.meanC, 4.1);
+  assert.equal(summary.temperatureStats.probeStats.Front_Top.meanC, 4.1);
+  assert.deepEqual(summary.temperatureExcursions, {
+    threshold: { minimumC: 4.2, maximumC: 4.5 },
+    excursionWindowCount: 1,
+    excursionProbeCount: 1,
+  });
+  assert.deepEqual(summary.temperatureTrend, [{ date: "2019-03-12", meanC: 4.1, measurementsCounted: 1 }]);
   assert.deepEqual(summary.next120R2, { positive: 1, negative: 0, missing: 1 });
   assert.deepEqual(summary.timeRange, { start: "2019-03-12 12:30:00", end: "2019-03-12 12:40:00" });
 });

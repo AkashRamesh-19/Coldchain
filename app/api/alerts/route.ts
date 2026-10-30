@@ -1,9 +1,13 @@
 
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
+import { authorize, shipmentAccessCondition, staffAndAbove } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const access = await authorize(request, staffAndAbove);
+    if ("response" in access) return access.response;
+    const scope = shipmentAccessCondition("s", access.user);
     const [rows] = await pool.query(`
       SELECT
         a.alert_id,
@@ -24,11 +28,12 @@ export async function GET() {
       WHERE NOT EXISTS (
         SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
       )
+      ${scope.sql}
       ORDER BY
         a.is_resolved ASC,
         FIELD(a.severity, 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'),
         a.created_at DESC
-    `);
+    `, scope.params);
 
     return NextResponse.json({
       success: true,

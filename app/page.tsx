@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { LoginForm, type SessionUser } from "./login-form";
 
 type TemperatureReport = {
   shipmentId: number;
@@ -44,6 +45,9 @@ type ResearchReport = {
 };
 
 export default function Home() {
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
   const [reports, setReports] = useState<Reports | null>(null);
   const [research, setResearch] = useState<ResearchReport | null>(null);
   const [researchError, setResearchError] = useState("");
@@ -78,40 +82,31 @@ export default function Home() {
     }
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    fetch("/api/reports", { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok || !body.success) throw new Error(body.message ?? "Could not load reports.");
-        return body as Reports;
-      })
-      .then((body) => {
-        if (active) setReports(body);
-      })
-      .catch((caught: unknown) => {
-        if (active) setError(caught instanceof Error ? caught.message : "Could not load reports.");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => { active = false; };
-  }, []);
+  const activateSession = useCallback(async (signedIn: SessionUser) => {
+    setUser(signedIn);
+    setAuthError("");
+    setReports(null);
+    setResearch(null);
+    setLoading(true);
+    await Promise.all([loadReports(), loadResearch()]);
+  }, [loadReports, loadResearch]);
 
   useEffect(() => {
     let active = true;
-    fetch("/api/research/strawberry", { cache: "no-store" })
+    fetch("/api/auth/me", { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json();
-        if (!response.ok || !body.success) throw new Error(body.message ?? "Could not load research analysis.");
-        return body as ResearchReport;
+        if (response.status === 401) return null;
+        if (!response.ok || !body.success) throw new Error(body.message ?? "Could not verify your session.");
+        return body.user as SessionUser;
       })
-      .then((body) => { if (active) setResearch(body); })
+      .then(async (sessionUser) => { if (active && sessionUser) await activateSession(sessionUser); })
       .catch((caught: unknown) => {
-        if (active) setResearchError(caught instanceof Error ? caught.message : "Could not load research analysis.");
-      });
+        if (active) setAuthError(caught instanceof Error ? caught.message : "Could not verify your session.");
+      })
+      .finally(() => { if (active) setAuthLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [activateSession]);
 
   async function refreshReports() {
     setLoading(true);
@@ -145,6 +140,14 @@ export default function Home() {
     (total, row) => total + Number(row.shipment_count),
     0,
   ) ?? 0;
+
+  if (authLoading) {
+    return <main className="flex min-h-screen items-center justify-center text-sm text-slate-600" role="status">Checking your ColdChain session…</main>;
+  }
+
+  if (!user) {
+    return <><LoginForm onAuthenticated={activateSession} />{authError && <p role="alert" className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-800">{authError}</p>}</>;
+  }
 
   return (
     <main className="mx-auto w-full max-w-7xl px-5 py-8 sm:px-8 lg:py-12">

@@ -132,6 +132,22 @@ export default function Home() {
     }
   }
 
+  async function signOut() {
+    setError("");
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST", cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok || !body.success) throw new Error(body.message ?? "Could not sign out.");
+      setUser(null);
+      setReports(null);
+      setResearch(null);
+      setLoading(true);
+      setActionMessage("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not sign out.");
+    }
+  }
+
   const totalUnresolved = reports?.unresolvedAlertsBySeverity.reduce(
     (total, row) => total + Number(row.unresolved_count),
     0,
@@ -159,13 +175,17 @@ export default function Home() {
             Operational shipment monitoring and separate analysis of published historical strawberry research data.
           </p>
         </div>
-        <button
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-          onClick={() => void refreshReports()}
-          disabled={loading}
-        >
-          {loading ? "Refreshing…" : "Refresh reports"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="text-sm text-slate-600"><span className="font-medium text-slate-900">{user.full_name}</span><span className="ml-2">{user.role.replaceAll("_", " ")}</span></div>
+          <button className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            onClick={() => void refreshReports()} disabled={loading}>
+            {loading ? "Refreshing…" : "Refresh reports"}
+          </button>
+          <button className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+            onClick={() => void signOut()}>
+            Sign out
+          </button>
+        </div>
       </header>
 
       <section aria-label="Project status" className="mt-7 grid gap-4 sm:grid-cols-3">

@@ -50,9 +50,16 @@ The importer writes only `research_strawberry_windows` and `research_dataset_imp
 | `/api/auth/login`, `/api/auth/logout`, `/api/auth/me` | POST/GET | Bcrypt login, HttpOnly cookie session, logout, current identity. |
 | `/api/users` and `/api/users/{id}` | GET/POST/PATCH | Administrator-only account management. Password hashes are never returned. |
 
-See [API contracts](docs/API.md) and [MongoDB model](docs/MONGODB.md) for exact fields, roles, limits, and response examples. Operational endpoints require a session cookie or bearer token. The existing dashboard page is preserved; its frontend still needs login/session wiring before protected operational data and write actions are available in the UI.
+See [API contracts](docs/API.md) and [MongoDB model](docs/MONGODB.md) for exact fields, roles, limits, and response examples. Operational endpoints require a session cookie or bearer token. The frontend has employee/admin sign-in, an admin-only employee management page, shipment dashboard, alert resolution page, and research/operational Reports page wired to these APIs.
 
-Research analyses include per-shipment window counts, mean `T_mean`, raw-probe temperature statistics and trends, configurable threshold excursions, risk label counts, missing values for each probe, future `y_next_120_R2` label counts, and the stored time range. Shipment and timezone-free date/time filters can be combined. If the import is absent or incomplete, the endpoint and dashboard report that state; they do not substitute example values. Operational sections show empty states when no operational records exist.
+Research reports include per-shipment window counts, mean `T_mean`, raw-probe statistics and trends, risk/future-label counts, probe-level missingness, and configurable temperature excursions. The Reports page also calculates a transparent **spatial exposure index**: out-of-range probe measurements divided by available probe measurements, with per-position rates and missing-value counts. It uses the selected real research rows and explicitly entered temperature bounds; it is a deterministic rule-based calculation, not an LLM or a prediction. Shipment and timezone-free date/time filters can be combined. If the import is absent or incomplete, the endpoint and page report that state; they do not substitute example values. Operational sections show empty states when no operational records exist.
+
+## Evaluation deliverables
+
+- **ER diagram:** [`docs/ER_Diagram.png`](docs/ER_Diagram.png) and its editable [Mermaid source](docs/ERD.md) show 13 relational tables (more than the five-table minimum), their keys/relationships, and the separate MongoDB collections.
+- **RDBMS + NoSQL:** MySQL stores constrained shipment and alert relations; MongoDB stores sensor observations and the independent research windows. See [MongoDB data model](docs/MONGODB.md).
+- **Project demo reports:** the authenticated Reports page demonstrates live SQL aggregates (shipment status, monthly shipments, routes and alert resolution) alongside analysis calculated from the imported research collection. The SQL queries are included in [`docs/reports.sql`](docs/reports.sql).
+- **Project novelty:** a spatial excursion and completeness profile ranks the nine original strawberry-probe positions by user-bounded excursion rate and shows missing values separately. The formula and source columns are documented in [`docs/ERD.md`](docs/ERD.md) and [`docs/API.md`](docs/API.md); no LLM is used.
 
 ## Interpretation
 
@@ -67,6 +74,6 @@ Research features and labels are from the published historical benchmark. They d
 
 The SQL deliverables demonstrate normalized related tables, primary/foreign/unique/check constraints, views, a status-history trigger, an alert procedure, transactions in shipment creation, filtered multi-table reports, GROUP BY/aggregates, a correlated non-operational exclusion, and indexed lookups. MongoDB uses flexible operational observation documents, a pinned research document model, aggregation pipelines, and explicit indexes.
 
-The system simulates sensor input through the authenticated sensor API; it does not require physical sensors, GPS infrastructure, live freight integrations, or predictive ML. Assignment-level operation access is enforced for operational APIs. Rate limiting, multi-factor authentication, production identity integration, and frontend login UI are outside this backend phase and remain handover work.
+The system accepts simulated sensor input through the authenticated sensor API; it does not require physical sensors, GPS infrastructure, live freight integrations, an LLM, or predictive ML. The application includes role-specific sign-in, an admin employee-management page, an alert-resolution page, and separate operational and research reporting. Assignment-level operation access is enforced for operational APIs. Rate limiting, multi-factor authentication, and production identity integration remain hardening work.
 
 Research unit tests verify source IDs and timestamps, stable idempotency keys, source null handling, record counts, label counts, and aggregation results. The research importer writes only its dedicated collection and manifest. It does not seed operational data.

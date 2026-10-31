@@ -2,7 +2,7 @@
 
 ![ColdChain Guardian relational and document data model](ER_Diagram.png)
 
-The generated PNG and SVG are kept beside this editable Mermaid source.
+The PNG is kept beside this editable Mermaid source. The relational part contains 13 MySQL base tables, exceeding the Level 3 five-table minimum; the MongoDB document collections are shown separately because they do not have relational foreign keys.
 
 This diagram reflects the connected local MySQL schema inspected on 26 October 2026. It shows declared foreign keys from `information_schema`; the lines do not infer any undocumented relationship. `shipment_overview` is a view, not a base table. MongoDB readings are shown separately because MySQL cannot declare a foreign key into MongoDB.
 

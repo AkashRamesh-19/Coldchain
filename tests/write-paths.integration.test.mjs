@@ -505,6 +505,16 @@ test("write API routes mutate only isolated fixtures and persist the expected re
     assert.equal(rows[0].resolved_by, fixture.userId);
     assert.ok(rows[0].resolved_at);
 
+    const resolvedList = await getJson(`/api/alerts?status=resolved&shipmentId=${fixture.shipmentId}`);
+    assert.equal(resolvedList.response.status, 200);
+    assert.ok(resolvedList.body.alerts.some((alert) => alert.alert_id === fixture.alertId && alert.route_name && alert.supplier_name && alert.products));
+    const invalidFilter = await getJson("/api/alerts?status=closed");
+    assert.equal(invalidFilter.response.status, 400);
+    const analytics = await getJson("/api/reports");
+    assert.equal(analytics.response.status, 200);
+    assert.ok(Number(analytics.body.alertTotals.resolved_alerts) >= 1);
+    assert.ok(analytics.body.alertCountsBySeverity.some((row) => Number(row.resolved_alerts) >= 1));
+
     const repeated = await postPatch(path, "PATCH", { resolved_by: fixture.userId });
     assert.equal(repeated.response.status, 200);
     assert.match(repeated.body.message, /already resolved/i);

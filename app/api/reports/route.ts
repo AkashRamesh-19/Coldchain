@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     if ("response" in access) return access.response;
     const scope = shipmentAccessCondition("s", access.user);
     const routeAlertScope = shipmentAccessCondition("a_shipment", access.user);
-    const [statusRows, alertRows, overviewRows, productRows, operationalRows, routeRows, monthlyRows, alertTotals] = await Promise.all([
+    const [statusRows, alertRows, overviewRows, productRows, operationalRows, routeRows, monthlyRows, alertTotals, alertSeverityRows] = await Promise.all([
       pool.query(`
         SELECT s.status, COUNT(*) AS shipment_count
         FROM shipments AS s
@@ -89,6 +89,16 @@ export async function GET(request: Request) {
         FROM alerts AS a INNER JOIN shipments AS s ON s.shipment_id = a.shipment_id
         WHERE NOT EXISTS (SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id)
         ${scope.sql}
+      `, scope.params),
+      pool.query(`
+        SELECT a.severity, COUNT(*) AS total_alerts,
+               SUM(a.is_resolved = 0) AS unresolved_alerts,
+               SUM(a.is_resolved = 1) AS resolved_alerts
+        FROM alerts AS a INNER JOIN shipments AS s ON s.shipment_id = a.shipment_id
+        WHERE NOT EXISTS (SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id)
+        ${scope.sql}
+        GROUP BY a.severity
+        ORDER BY FIELD(a.severity, 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW')
       `, scope.params),
     ]);
 
@@ -175,6 +185,7 @@ export async function GET(request: Request) {
       temperatureByShipment,
       sensorMetricsByShipment,
       unresolvedAlertsBySeverity: alertRows[0],
+      alertCountsBySeverity: alertSeverityRows[0],
       alertTotals: (alertTotals[0] as Array<Record<string, unknown>>)[0],
       shipmentCountsByStatus: statusRows[0],
       shipmentOverview: overviewRows[0],

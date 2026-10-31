@@ -7,10 +7,12 @@ All JSON errors use `{ "success": false, "message": "..." }`. IDs are positive i
 | Method and path | Access | Request | Successful response |
 | --- | --- | --- | --- |
 | `POST /api/auth/login` | Public | `{ "email": "...", "password": "..." }` | `{ success, user: { user_id, full_name, email, role }, expiresInSeconds }`; sets an HttpOnly `ccg_session` cookie. |
+| `POST /api/auth/admin/login` | Public | `{ "email" or "employeeId", "password" }` | Same session response; accepts only the `ADMIN` role. |
+| `POST /api/auth/employee/login` | Public | `{ "email" or "employeeId", "password" }` | Same session response; accepts employee roles only. |
 | `POST /api/auth/logout` | Public | Empty JSON | `{ success, message }`; revokes the current session and clears its cookie. |
 | `GET /api/auth/me` | Authenticated | None | `{ success, user: { user_id, full_name, email, role } }`. |
 | `GET /api/users` | Admin | None | `{ success, count, users }`; never returns password hashes. |
-| `POST /api/users` | Admin | `{ full_name, email, password, role }` | `201 { success, user }`; password must be at least 12 characters and is stored as bcrypt. |
+| `POST /api/users` | Admin | `{ full_name, email, password, role }` | `201 { success, user }`; password must be at least 12 characters and is stored as bcrypt. The returned `user_id` is the employee ID used at employee sign-in. |
 | `PATCH /api/users/{id}` | Admin | Any of `full_name`, `email`, `password`, `role`, `is_active` | `{ success, user }`; password reset or deactivation revokes sessions. |
 
 Roles are `ADMIN`, `LOGISTICS_MANAGER`, and `OPERATIONS_STAFF`. Managers/admins maintain the catalog and create shipments. Operations staff can see and update only shipments assigned through `shipment_assignments`, and can record readings or run condition checks for those shipments. Only managers/admins resolve alerts. All operational reads require a session. Research dataset analysis is public because it uses published historical data only.

@@ -29,6 +29,8 @@ For a new empty MySQL database, `database/mysql-schema.sql` initializes the sche
 
 Run `npm run setup:mongodb` to create operational reading, research uniqueness, and session-expiry indexes. The operation is additive and idempotent. Then run `npm run import:research` to download and verify the pinned historical dataset.
 
+For a clearly labeled classroom scenario only, `npm run seed:samples` idempotently adds three `SAMPLE-CCG-*` shipments and sensor readings to the operational tables/collection so the monitoring workflow has records to display. These are generated examples, not real freight; do not seed a production database. The script does not touch the published strawberry research collection.
+
 The importer writes only `research_strawberry_windows` and `research_dataset_imports`; it does not write to MySQL or operational `sensor_readings`. Start the application with `npm run dev` or `npm run build && npm start`.
 
 ## API routes

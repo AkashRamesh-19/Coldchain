@@ -1,6 +1,6 @@
 # Backend verification results
 
-Verification run from the project root on 30 October 2026. No production data was used for write-path tests.
+Verification run from the project root on 31 October 2026. No production data was used for write-path tests.
 
 | Check | Result | Notes |
 |---|---|---|
@@ -11,7 +11,7 @@ Verification run from the project root on 30 October 2026. No production data wa
 | `npm.cmd audit --omit=dev` | PASS — 0 vulnerabilities | Production dependencies have no reported advisories. This command omits development dependencies. |
 | `npm.cmd audit` | 2 moderate findings | Both arise from the `uuid` advisory in development dependency `exceljs`. npm's suggested forced resolution downgrades `exceljs` to a breaking version; no force fix was applied. The advisory is outside the production dependency set. |
 
-The backend integration suite covers authentication and role scope, transactional shipment creation and rollback, catalog validation and foreign-key deletion protection, temperature/humidity alert behavior and deduplication, alert resolution, shipment status history, idempotent sensor ingestion, operational report aggregation, research filtering/aggregation/import idempotency, and demo-record exclusion without deletion.
+The backend integration suite covers authentication and role-specific login (including admin-created employee login by generated user ID), transactional shipment creation and rollback, catalog validation and foreign-key deletion protection, temperature/humidity alert behavior and deduplication, alert resolution, shipment status history, idempotent sensor ingestion, operational report aggregation, research filtering/aggregation/import idempotency, and demo-record exclusion without deletion. The local sample-data loader was run twice and reused the same three shipment IDs and six sensor document IDs.
 
 The live-server smoke checks remain opt-in. To run them, start the app with test databases configured and provide the test-only `BACKEND_TEST_URL` and `BACKEND_TEST_BEARER` variables. Do not reuse production credentials or point mutation tests at a production database.
 

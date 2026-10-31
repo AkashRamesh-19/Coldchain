@@ -337,6 +337,28 @@ test("authentication and role-scoped shipment access are enforced", async () => 
   const wrongPassword = await getJsonUnauthenticated("/api/auth/login", { method: "POST", body: JSON.stringify({ email: fixture.email, password: "wrong-password" }), headers: { "content-type": "application/json" } });
   assert.equal(wrongPassword.response.status, 401);
 
+  const adminPortalLogin = await getJsonUnauthenticated("/api/auth/admin/login", { method: "POST", body: JSON.stringify({ employeeId: String(fixture.userId), password: fixture.password }), headers: { "content-type": "application/json" } });
+  assert.equal(adminPortalLogin.response.status, 200);
+  const rejectedEmployeeAtAdminPortal = await getJsonUnauthenticated("/api/auth/admin/login", { method: "POST", body: JSON.stringify({ email: fixture.staffEmail, password: fixture.staffPassword }), headers: { "content-type": "application/json" } });
+  assert.equal(rejectedEmployeeAtAdminPortal.response.status, 401);
+  const employeePortalLogin = await getJsonUnauthenticated("/api/auth/employee/login", { method: "POST", body: JSON.stringify({ email: fixture.staffEmail, password: fixture.staffPassword }), headers: { "content-type": "application/json" } });
+  assert.equal(employeePortalLogin.response.status, 200);
+
+  const newEmployeePassword = `New-Employee-${suffix}`;
+  const employeeCreate = await postPatch("/api/users", "POST", {
+    full_name: "Admin-Created Employee", email: `created-${suffix}@example.invalid`,
+    password: newEmployeePassword, role: "OPERATIONS_STAFF",
+  });
+  assert.equal(employeeCreate.response.status, 201);
+  assert.ok(Number.isInteger(employeeCreate.body.user.user_id));
+  assert.equal("password_hash" in employeeCreate.body.user, false);
+  const employeeIdLogin = await getJsonUnauthenticated("/api/auth/employee/login", {
+    method: "POST", body: JSON.stringify({ employeeId: String(employeeCreate.body.user.user_id), password: newEmployeePassword }),
+    headers: { "content-type": "application/json" },
+  });
+  assert.equal(employeeIdLogin.response.status, 200);
+  assert.equal(employeeIdLogin.body.user.role, "OPERATIONS_STAFF");
+
   const staffLogin = await getJsonUnauthenticated("/api/auth/login", { method: "POST", body: JSON.stringify({ email: fixture.staffEmail, password: fixture.staffPassword }), headers: { "content-type": "application/json" } });
   assert.equal(staffLogin.response.status, 200);
   const adminCookie = sessionCookie;

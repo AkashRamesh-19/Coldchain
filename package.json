@@ -11,7 +11,8 @@
     "test:backend:write": "node --test tests/write-paths.integration.test.mjs",
     "import:research": "node scripts/import-strawberry-research.mjs",
     "setup:mongodb": "node scripts/setup-mongodb.mjs",
-    "bootstrap:admin": "node scripts/bootstrap-admin.mjs"
+    "bootstrap:admin": "node scripts/bootstrap-admin.mjs",
+    "seed:samples": "node scripts/seed-sample-shipments.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

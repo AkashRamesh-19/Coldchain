@@ -10,6 +10,7 @@ export type SessionUser = {
 };
 
 export function LoginForm({ onAuthenticated }: { onAuthenticated: (user: SessionUser) => void }) {
+  const [audience, setAudience] = useState<"employee" | "admin">("employee");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -20,7 +21,7 @@ export function LoginForm({ onAuthenticated }: { onAuthenticated: (user: Session
     setError("");
     setSubmitting(true);
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch(`/api/auth/${audience}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -45,10 +46,14 @@ export function LoginForm({ onAuthenticated }: { onAuthenticated: (user: Session
           <h1 id="login-title" className="mt-3 text-3xl font-bold tracking-tight text-slate-950">Guardian sign in</h1>
           <p className="mt-2 text-sm text-slate-600">Sign in with your assigned ColdChain account.</p>
         </div>
+        <div className="mb-5 grid grid-cols-2 rounded-lg bg-slate-100 p-1" role="group" aria-label="Account type">
+          <button type="button" aria-pressed={audience === "employee"} onClick={() => setAudience("employee")} className={`rounded-md px-3 py-2 text-sm font-semibold ${audience === "employee" ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>Employee</button>
+          <button type="button" aria-pressed={audience === "admin"} onClick={() => setAudience("admin")} className={`rounded-md px-3 py-2 text-sm font-semibold ${audience === "admin" ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>Administrator</button>
+        </div>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label htmlFor="login-email" className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
-            <input id="login-email" name="email" type="email" autoComplete="username" required maxLength={150}
+            <label htmlFor="login-email" className="mb-1.5 block text-sm font-medium text-slate-700">Email or employee ID</label>
+            <input id="login-email" name="email" type="text" autoComplete="username" required maxLength={150}
               value={email} onChange={(event) => setEmail(event.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3.5 py-3 text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
           </div>
@@ -64,7 +69,7 @@ export function LoginForm({ onAuthenticated }: { onAuthenticated: (user: Session
             {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p className="mt-6 text-center text-xs leading-5 text-slate-500">Access is managed by your ColdChain administrator. Passwords are never shown or stored in this page.</p>
+        <p className="mt-6 text-center text-xs leading-5 text-slate-500">Employee accounts are created by an administrator. Sign-in credentials are verified securely by ColdChain Guardian.</p>
       </section>
     </main>
   );

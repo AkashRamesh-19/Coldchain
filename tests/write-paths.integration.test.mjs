@@ -613,9 +613,16 @@ test("research API applies shipment and time filters and reports raw-probe stati
   assert.deepEqual(response.body.analysis.shipmentCounts, { S1: 1, S2: 0, S3: 0, S4: 0, S5: 0, S6: 0 });
   assert.equal(response.body.analysis.temperatureStats.probeMeasurementsCounted, 1);
   assert.equal(response.body.analysis.temperatureStats.meanC, 4.8);
-  assert.deepEqual(response.body.analysis.temperatureExcursions, {
-    threshold: { minimumC: 4, maximumC: 4.5 }, excursionWindowCount: 1, excursionProbeCount: 1,
+  assert.equal(response.body.analysis.temperatureExcursions.threshold.minimumC, 4);
+  assert.equal(response.body.analysis.temperatureExcursions.threshold.maximumC, 4.5);
+  assert.equal(response.body.analysis.temperatureExcursions.excursionWindowCount, 1);
+  assert.equal(response.body.analysis.temperatureExcursions.excursionProbeCount, 1);
+  assert.equal(response.body.analysis.temperatureExcursions.exposureIndexPercent, 100);
+  assert.deepEqual(response.body.analysis.temperatureExcursions.probeProfile[0], {
+    probe: "Front_Top", observedCount: 1, missingCount: 0,
+    excursionCount: 1, excursionRatePercent: 100, missingRatePercent: 0,
   });
+  assert.equal(response.body.analysis.temperatureExcursions.probeProfile.find((probe) => probe.probe === "Front_Middle").missingCount, 1);
 
   const unsupported = await getJson("/api/research/strawberry?shipmentId=S7");
   assert.equal(unsupported.response.status, 400);

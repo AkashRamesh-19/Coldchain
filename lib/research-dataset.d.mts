@@ -36,6 +36,15 @@ export function summarizeResearchRows(rows: ResearchRow[], temperatureThreshold?
     threshold: { minimumC: number; maximumC: number };
     excursionWindowCount: number;
     excursionProbeCount: number;
+    exposureIndexPercent: number | null;
+    probeProfile: Array<{
+      probe: string;
+      observedCount: number;
+      missingCount: number;
+      excursionCount: number;
+      excursionRatePercent: number | null;
+      missingRatePercent: number | null;
+    }>;
   } | null;
   riskLevelCounts: Record<string, number>;
   missingRiskLevelCount: number;

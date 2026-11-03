@@ -103,7 +103,7 @@ function AlertsContent() {
     }
   }
 
-  const canResolve = user?.role === "ADMIN" || user?.role === "LOGISTICS_MANAGER";
+  const canResolve = Boolean(user);
   return (
     <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
       <PageHeading eyebrow="Operational shipment monitoring" title="Alerts" description="Review current alert details alongside the affected shipment and route." onRefresh={() => { setLoading(true); void loadAlerts(); void loadTotals(); }} loading={loading} />
@@ -148,7 +148,7 @@ function AlertsContent() {
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 {solved ? <p className="text-xs text-slate-500">Solved {alert.resolved_at ? `on ${formatDate(alert.resolved_at)}` : ""}</p> : <p className="text-xs text-slate-500">Shipment ID {alert.shipment_id} · Alert ID {alert.alert_id}</p>}
                 {!solved && canResolve && <button type="button" onClick={() => void resolveAlert(alert.alert_id)} disabled={resolving !== null} className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60">{resolving === alert.alert_id ? "Saving…" : "Mark solved"}</button>}
-                {!solved && !canResolve && <p className="text-xs text-amber-800">Only a logistics manager or administrator can resolve alerts.</p>}
+                {!solved && !canResolve && <p className="text-xs text-amber-800">Sign in to resolve this alert.</p>}
               </div>
             </article>;
           })}

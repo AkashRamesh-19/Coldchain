@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
 import { AppShell, useSessionUser } from "../components/app-shell";
 
 type StaffRole = "OPERATIONS_STAFF" | "LOGISTICS_MANAGER";
@@ -25,6 +25,10 @@ function SettingsContent() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [createdEmployeeId, setCreatedEmployeeId] = useState<number | null>(null);
+  const [passwordUserId, setPasswordUserId] = useState<number | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const loadUsers = useCallback(async () => {
     if (currentUser?.role !== "ADMIN") return;
@@ -84,6 +88,35 @@ function SettingsContent() {
     }
   }
 
+  async function changeEmployeePassword(event: FormEvent<HTMLFormElement>, account: UserRecord) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    if (newPassword !== confirmPassword) {
+      setError("The new password and confirmation do not match.");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const response = await fetch(`/api/users/${account.user_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: newPassword }),
+        cache: "no-store",
+      });
+      const body = await response.json();
+      if (!response.ok || !body.success) throw new Error(body.message ?? "Could not change the employee password.");
+      setMessage(`Password changed for ${account.full_name}. Their existing sessions were signed out; share the new password securely.`);
+      setPasswordUserId(null);
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not change the employee password.");
+    } finally {
+      setChangingPassword(false);
+    }
+  }
+
   if (currentUser?.role !== "ADMIN") {
     return <main className="mx-auto max-w-4xl px-5 py-12 sm:px-8"><section className="rounded-xl border border-amber-200 bg-amber-50 p-6"><h1 className="text-2xl font-bold text-slate-950">Administrator settings</h1><p className="mt-2 text-sm text-amber-900">Only an administrator can manage employee accounts.</p></section></main>;
   }
@@ -96,7 +129,7 @@ function SettingsContent() {
 
       <section className="mt-7 grid items-start gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="mb-5"><h2 className="text-lg font-semibold text-slate-950">Add employee</h2><p className="mt-1 text-sm text-slate-600">The employee ID is generated after account creation. Passwords are stored as hashes by the backend.</p></div>
+          <div className="mb-5"><h2 className="text-lg font-semibold text-slate-950">Add employee</h2><p className="mt-1 text-sm text-slate-600">The employee ID is generated after account creation. Operations staff share current shipment data automatically; passwords are stored as hashes by the backend.</p></div>
           <form onSubmit={createEmployee} className="space-y-4">
             <Field label="Full name" htmlFor="employee-name"><input id="employee-name" name="name" autoComplete="name" required minLength={2} maxLength={100} value={name} onChange={(event) => setName(event.target.value)} className={inputClass} /></Field>
             <Field label="Email" htmlFor="employee-email"><input id="employee-email" name="email" type="email" autoComplete="email" required maxLength={150} value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} /></Field>
@@ -108,10 +141,13 @@ function SettingsContent() {
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="accounts-heading">
           <div className="border-b border-slate-200 px-5 py-4"><h2 id="accounts-heading" className="font-semibold text-slate-950">Employee accounts</h2><p className="mt-1 text-sm text-slate-600">Email, generated ID, role and account status. Passwords are never displayed.</p></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[580px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Name / ID</th><th className="px-4 py-3">Email</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">Status</th></tr></thead><tbody className="divide-y divide-slate-100">
-            {users.filter((account) => account.user_id !== currentUser.user_id).map((account) => <tr key={account.user_id}><td className="px-4 py-3"><strong>{account.full_name}</strong><span className="block text-xs text-slate-500">ID {account.user_id}</span></td><td className="px-4 py-3">{account.email}</td><td className="px-4 py-3">{account.role.replaceAll("_", " ")}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${Boolean(account.is_active) ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{Boolean(account.is_active) ? "Active" : "Inactive"}</span></td></tr>)}
-            {!loading && users.filter((account) => account.user_id !== currentUser.user_id).length === 0 && <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-500">No employee accounts yet. Use Add employee to create the first one.</td></tr>}
-            {loading && <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-500">Loading accounts…</td></tr>}
+          <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Name / ID</th><th className="px-4 py-3">Email</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Account action</th></tr></thead><tbody className="divide-y divide-slate-100">
+            {users.filter((account) => account.user_id !== currentUser.user_id).map((account) => <Fragment key={account.user_id}>
+              <tr key={account.user_id}><td className="px-4 py-3"><strong>{account.full_name}</strong><span className="block text-xs text-slate-500">ID {account.user_id}</span></td><td className="px-4 py-3">{account.email}</td><td className="px-4 py-3">{account.role.replaceAll("_", " ")}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${Boolean(account.is_active) ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{Boolean(account.is_active) ? "Active" : "Inactive"}</span></td><td className="px-4 py-3"><button type="button" onClick={() => { setError(""); setMessage(""); setPasswordUserId(passwordUserId === account.user_id ? null : account.user_id); setNewPassword(""); setConfirmPassword(""); }} className="whitespace-nowrap rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{passwordUserId === account.user_id ? "Cancel" : "Change password"}</button></td></tr>
+              {passwordUserId === account.user_id && <tr key={`${account.user_id}-password`}><td colSpan={5} className="bg-slate-50 px-4 py-4"><form onSubmit={(event) => void changeEmployeePassword(event, account)} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><Field label="New password" htmlFor={`new-password-${account.user_id}`}><input id={`new-password-${account.user_id}`} name="new-password" type="password" autoComplete="new-password" required minLength={12} maxLength={200} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className={inputClass} /><span className="mt-1 block text-xs text-slate-500">At least 12 characters; existing sessions will be signed out.</span></Field><Field label="Confirm new password" htmlFor={`confirm-password-${account.user_id}`}><input id={`confirm-password-${account.user_id}`} name="confirm-password" type="password" autoComplete="new-password" required minLength={12} maxLength={200} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className={inputClass} /></Field><button type="submit" disabled={changingPassword} className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-wait disabled:opacity-60">{changingPassword ? "Saving…" : "Save password"}</button></form></td></tr>}
+            </Fragment>)}
+            {!loading && users.filter((account) => account.user_id !== currentUser.user_id).length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">No employee accounts yet. Use Add employee to create the first one.</td></tr>}
+            {loading && <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">Loading accounts…</td></tr>}
           </tbody></table></div>
         </section>
       </section>

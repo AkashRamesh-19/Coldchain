@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { AppShell } from "./components/app-shell";
 
 type ReportData = {
@@ -9,9 +9,11 @@ type ReportData = {
   shipmentCountsByStatus: Array<{ status: string; shipment_count: number }>;
   alertTotals: { total_alerts: number; unresolved_alerts: number; resolved_alerts: number };
   unresolvedAlertsBySeverity: Array<{ severity: string; unresolved_count: number }>;
-  temperatureByShipment: Array<{ shipmentId: number; averageTemperatureC: number; readingsCounted: number; excursionReadingCount: number }>;
   alertCountsBySeverity: Array<{ severity: string; total_alerts: number; unresolved_alerts: number; resolved_alerts: number }>;
 };
+
+type TemperatureReading = { timestamp: string | Date; temperature?: number | string | null; humidity?: number | string | null };
+type TemperatureCheckResult = { readingsChecked: number; excursionReadingCount: number; alertsCreated: number; sensorReadings: TemperatureReading[] };
 
 function DashboardContent() {
   const [reports, setReports] = useState<ReportData | null>(null);
@@ -19,6 +21,7 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState<number | null>(null);
   const [message, setMessage] = useState("");
+  const [temperatureResults, setTemperatureResults] = useState<Record<number, TemperatureCheckResult>>({});
 
   const loadReports = useCallback(async () => {
     try {
@@ -48,11 +51,23 @@ function DashboardContent() {
   async function checkTemperature(shipmentId: number) {
     setChecking(shipmentId);
     setMessage("");
+    setTemperatureResults((current) => {
+      const next = { ...current };
+      delete next[shipmentId];
+      return next;
+    });
     try {
       const response = await fetch(`/api/shipments/${shipmentId}/check-temperature`, { method: "POST" });
       const body = await response.json();
       if (!response.ok || !body.success) throw new Error(body.message ?? "Temperature check failed.");
-      setMessage(`Checked ${body.readingsChecked} readings for ${shipmentId}; found ${body.excursionReadingCount} excursions and created ${body.alertsCreated} alerts.`);
+      const result: TemperatureCheckResult = {
+        readingsChecked: Number(body.readingsChecked ?? 0),
+        excursionReadingCount: Number(body.excursionReadingCount ?? 0),
+        alertsCreated: Number(body.alertsCreated ?? 0),
+        sensorReadings: Array.isArray(body.sensorReadings) ? body.sensorReadings : [],
+      };
+      setTemperatureResults((current) => ({ ...current, [shipmentId]: result }));
+      setMessage(`Temperature check complete for shipment ${shipmentId}.`);
       setLoading(true);
       await loadReports();
     } catch (caught) { setMessage(caught instanceof Error ? caught.message : "Temperature check failed."); }
@@ -77,7 +92,21 @@ function DashboardContent() {
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-semibold text-slate-950">Shipments</h2><p className="mt-1 text-sm text-slate-600">Generated `SAMPLE-CCG-*` entries are demonstration scenarios, not real freight.</p></div>
           <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Shipment</th><th className="px-4 py-3">Route</th><th className="px-4 py-3">Vehicle / driver</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">
-            {reports?.shipmentOverview.map((shipment) => <tr key={shipment.shipment_id}><td className="px-4 py-4"><strong>{shipment.shipment_code}</strong><span className="block text-xs text-slate-500">{shipment.supplier_name}</span></td><td className="px-4 py-4">{shipment.source_warehouse} → {shipment.destination_warehouse}</td><td className="px-4 py-4">{shipment.vehicle_number}<span className="block text-xs text-slate-500">{shipment.driver_name}</span></td><td className="px-4 py-4">{shipment.status.replaceAll("_", " ")}</td><td className="px-4 py-4"><button onClick={() => void checkTemperature(shipment.shipment_id)} disabled={checking !== null} className="rounded-md bg-teal-700 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50">{checking === shipment.shipment_id ? "Checking…" : "Check temperatures"}</button></td></tr>)}
+            {reports?.shipmentOverview.map((shipment) => {
+              const result = temperatureResults[shipment.shipment_id];
+              const temperatures = result?.sensorReadings.map((reading) => Number(reading.temperature)).filter(Number.isFinite) ?? [];
+              const average = temperatures.length ? temperatures.reduce((sum, value) => sum + value, 0) / temperatures.length : null;
+              return <Fragment key={shipment.shipment_id}>
+                <tr><td className="px-4 py-4"><strong>{shipment.shipment_code}</strong><span className="block text-xs text-slate-500">{shipment.supplier_name}</span></td><td className="px-4 py-4">{shipment.source_warehouse} → {shipment.destination_warehouse}</td><td className="px-4 py-4">{shipment.vehicle_number}<span className="block text-xs text-slate-500">{shipment.driver_name}</span></td><td className="px-4 py-4">{shipment.status.replaceAll("_", " ")}</td><td className="px-4 py-4"><button onClick={() => void checkTemperature(shipment.shipment_id)} disabled={checking !== null} className="rounded-md bg-teal-700 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50">{checking === shipment.shipment_id ? "Checking…" : result ? "Check again" : "Check temperatures"}</button></td></tr>
+                {result && <tr><td colSpan={5} className="bg-teal-50/70 px-5 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><p className="font-semibold text-slate-900">Temperature check · {shipment.shipment_code}</p><p className="mt-1 text-xs text-slate-600">{result.readingsChecked} readings checked · {result.excursionReadingCount} out-of-range readings · {result.alertsCreated} new alerts</p></div>
+                    {average !== null && <p className="rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm font-semibold text-teal-900">Average {average.toFixed(2)} °C</p>}
+                  </div>
+                  {result.sensorReadings.length === 0 ? <p className="mt-3 text-sm text-slate-600">No sensor readings are available for this shipment.</p> : <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{result.sensorReadings.map((reading, index) => <div key={`${shipment.shipment_id}-${index}`} className="rounded-lg border border-teal-100 bg-white px-3 py-2.5 text-sm"><p className="text-xs text-slate-500">{formatSensorTimestamp(reading.timestamp)}</p><p className="mt-1 font-semibold text-slate-900">{reading.temperature === null || reading.temperature === undefined ? "—" : `${Number(reading.temperature).toFixed(2)} °C`}<span className="px-2 font-normal text-slate-400">·</span>{reading.humidity === null || reading.humidity === undefined ? "—" : `${Number(reading.humidity).toFixed(1)}% humidity`}</p></div>)}</div>}
+                </td></tr>}
+              </Fragment>;
+            })}
             {!loading && reports?.shipmentOverview.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">No operational shipments yet.</td></tr>}
           </tbody></table></div>
         </div>
@@ -86,7 +115,6 @@ function DashboardContent() {
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-950">Unresolved alerts</h2><div className="mt-3 space-y-2">{reports?.unresolvedAlertsBySeverity.map((row) => <Breakdown key={row.severity} label={row.severity} value={row.unresolved_count} />)}{!loading && reports?.unresolvedAlertsBySeverity.length === 0 && <p className="text-sm text-slate-500">No unresolved alerts.</p>}</div></section>
         </div>
       </section>
-      <section className="mt-7 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-200 px-5 py-4"><h2 className="font-semibold text-slate-950">Temperature summary</h2><p className="mt-1 text-sm text-slate-600">Shipment-level MongoDB readings compared with carried products’ MySQL temperature limits.</p></div><div className="divide-y divide-slate-100">{reports?.temperatureByShipment.map((row) => <div key={row.shipmentId} className="grid grid-cols-2 gap-2 px-5 py-3 text-sm sm:grid-cols-4"><span>Shipment {row.shipmentId}</span><span>Avg {row.averageTemperatureC.toFixed(2)} °C</span><span>{row.readingsCounted} readings</span><span>{row.excursionReadingCount} excursions</span></div>)}{!loading && reports?.temperatureByShipment.length === 0 && <p className="px-5 py-7 text-center text-sm text-slate-500">No sensor readings available.</p>}</div></section>
       <p className="mt-4 text-xs text-slate-500">{reports?.dataNote}</p>
     </main>
   );
@@ -95,3 +123,15 @@ function DashboardContent() {
 export default function Home() { return <AppShell><DashboardContent /></AppShell>; }
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) { return <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold text-slate-950">{value}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>; }
 function Breakdown({ label, value }: { label: string; value: number }) { return <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 text-sm"><span>{label}</span><strong>{Number(value).toLocaleString()}</strong></div>; }
+function formatSensorTimestamp(value: string | Date) {
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
+}

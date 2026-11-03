@@ -25,8 +25,9 @@ try {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      const [existingRows] = await connection.execute("SELECT shipment_id FROM shipments WHERE shipment_code = ?", [scenario.code]);
+      const [existingRows] = await connection.execute("SELECT shipment_id, shipment_date FROM shipments WHERE shipment_code = ?", [scenario.code]);
       let shipmentId = existingRows[0]?.shipment_id;
+      let shipmentStart = existingRows[0]?.shipment_date;
       if (!shipmentId) {
         const [productRows] = await connection.execute("SELECT product_id, supplier_id FROM products WHERE product_name = ? LIMIT 1", [scenario.productName]);
         const product = productRows[0];
@@ -43,6 +44,8 @@ try {
           [scenario.code, product.supplier_id, route.source_warehouse_id, route.destination_warehouse_id, vehicles[0].vehicle_id, drivers[0].driver_id, route.route_id, date(now), date(new Date(now.getTime() + 4 * 60 * 60 * 1000))],
         );
         shipmentId = insert.insertId;
+        const [shipmentRows] = await connection.execute("SELECT shipment_date FROM shipments WHERE shipment_id = ?", [shipmentId]);
+        shipmentStart = shipmentRows[0]?.shipment_date;
         await connection.execute("INSERT INTO shipment_items (shipment_id,product_id,quantity,unit_weight_kg) VALUES (?,?,?,?)", [shipmentId, product.product_id, 100 + index * 25, 1]);
         await connection.execute("INSERT INTO shipment_status_history (shipment_id,old_status,new_status,changed_by,remarks) VALUES (?,NULL,'CREATED',?,'Generated SAMPLE scenario; not live freight')", [shipmentId, adminRows[0].user_id]);
         await connection.execute("UPDATE vehicles SET status='IN_TRANSIT' WHERE vehicle_id=?", [vehicles[0].vehicle_id]);
@@ -51,9 +54,19 @@ try {
       } else {
         await connection.commit();
       }
-      const instant = new Date();
-      readings.push({ _id: `sample:${scenario.code}:1`, shipment_id: shipmentId, sensor_id: "sample-probe-1", timestamp: new Date(instant.getTime() - 60_000), temperature: scenario.temperature, humidity: scenario.humidity, source: "generated_sample" });
-      readings.push({ _id: `sample:${scenario.code}:2`, shipment_id: shipmentId, sensor_id: "sample-probe-1", timestamp: instant, temperature: scenario.temperature, humidity: scenario.humidity, source: "generated_sample" });
+      if (!shipmentStart) throw new Error(`Shipment start time is missing for ${scenario.code}.`);
+      const shipmentStartTime = new Date(shipmentStart).getTime();
+      for (const [readingIndex, minutesAfterStart] of [15, 30].entries()) {
+        readings.push({
+          _id: `sample:${scenario.code}:${readingIndex + 1}`,
+          shipment_id: shipmentId,
+          sensor_id: "sample-probe-1",
+          timestamp: new Date(shipmentStartTime + minutesAfterStart * 60_000),
+          temperature: scenario.temperature,
+          humidity: scenario.humidity,
+          source: "generated_sample",
+        });
+      }
       if (scenario.alert) {
         await pool.execute(
           `INSERT INTO alerts (shipment_id,alert_type,severity,message,sensor_value,threshold_value)

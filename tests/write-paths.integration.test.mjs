@@ -352,6 +352,15 @@ test("authentication and role-scoped shipment access are enforced", async () => 
   assert.equal(employeeCreate.response.status, 201);
   assert.ok(Number.isInteger(employeeCreate.body.user.user_id));
   assert.equal("password_hash" in employeeCreate.body.user, false);
+  const [operationalShipmentCount] = await adminConnection.execute(`
+    SELECT COUNT(*) AS count FROM shipments s
+    WHERE NOT EXISTS (SELECT 1 FROM non_operational_shipments n WHERE n.shipment_id = s.shipment_id)
+  `);
+  const [employeeAssignmentCount] = await adminConnection.execute(
+    "SELECT COUNT(*) AS count FROM shipment_assignments WHERE user_id = ?",
+    [employeeCreate.body.user.user_id],
+  );
+  assert.equal(Number(employeeAssignmentCount[0].count), Number(operationalShipmentCount[0].count));
   const employeeIdLogin = await getJsonUnauthenticated("/api/auth/employee/login", {
     method: "POST", body: JSON.stringify({ employeeId: String(employeeCreate.body.user.user_id), password: newEmployeePassword }),
     headers: { "content-type": "application/json" },
@@ -371,6 +380,10 @@ test("authentication and role-scoped shipment access are enforced", async () => 
   const session = await getJson("/api/auth/me");
   assert.equal(session.response.status, 200);
   assert.equal(session.body.user.role, "OPERATIONS_STAFF");
+  const [employeeAlertInsert] = await adminConnection.execute(
+    "INSERT INTO alerts (shipment_id, alert_type, severity, message) VALUES (?, 'HUMIDITY', 'LOW', 'Employee resolution test alert')",
+    [fixture.shipmentId],
+  );
   const unauthorizedCreate = await postPatch("/api/shipments", "POST", {
     shipment_code: `FORBIDDEN-${suffix}`, supplier_id: fixture.supplierId,
     source_warehouse_id: fixture.sourceWarehouseId, destination_warehouse_id: fixture.destinationWarehouseId,
@@ -379,8 +392,14 @@ test("authentication and role-scoped shipment access are enforced", async () => 
     items: [{ product_id: fixture.productId, quantity: 1, unit_weight_kg: 1 }],
   });
   assert.equal(unauthorizedCreate.response.status, 403);
-  const unauthorizedResolution = await postPatch(`/api/alerts/${fixture.alertId}`, "PATCH", {});
-  assert.equal(unauthorizedResolution.response.status, 403);
+  const employeeResolution = await postPatch(`/api/alerts/${employeeAlertInsert.insertId}`, "PATCH", {});
+  assert.equal(employeeResolution.response.status, 200);
+  const [employeeResolvedAlert] = await adminConnection.execute(
+    "SELECT is_resolved, resolved_by FROM alerts WHERE alert_id = ?",
+    [employeeAlertInsert.insertId],
+  );
+  assert.equal(employeeResolvedAlert[0].is_resolved, 1);
+  assert.equal(employeeResolvedAlert[0].resolved_by, fixture.staffUserId);
   const logout = await postPatch("/api/auth/logout", "POST", {});
   assert.equal(logout.response.status, 200);
   sessionCookie = logout.setCookie.split(";")[0];
@@ -419,8 +438,9 @@ test("shipment creation is transactional and creates items, assignment, and init
   assert.equal(details.body.items.length, 1);
   assert.equal(details.body.statusHistory.length, 1);
   assert.equal(details.body.statusHistory[0].new_status, "CREATED");
-  const [assignment] = await adminConnection.execute("SELECT user_id FROM shipment_assignments WHERE shipment_id = ?", [shipmentId]);
-  assert.equal(assignment[0].user_id, fixture.staffUserId);
+  const [assignments] = await adminConnection.execute("SELECT user_id FROM shipment_assignments WHERE shipment_id = ?", [shipmentId]);
+  assert.ok(assignments.some((assignment) => assignment.user_id === fixture.staffUserId));
+  assert.ok(assignments.length >= 2, "new operational shipments should be visible to every active operations staff account");
   const [reserved] = await adminConnection.execute("SELECT v.status vehicle_status, d.status driver_status FROM vehicles v JOIN shipments s ON s.vehicle_id=v.vehicle_id JOIN drivers d ON d.driver_id=s.driver_id WHERE s.shipment_id = ?", [shipmentId]);
   assert.equal(reserved[0].vehicle_status, "IN_TRANSIT");
   assert.equal(reserved[0].driver_status, "ON_DUTY");

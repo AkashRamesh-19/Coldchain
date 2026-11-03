@@ -94,3 +94,41 @@ ORDER BY o.shipment_date DESC, o.shipment_id DESC;
 -- Average temperatures and excursion counts are computed by GET /api/reports
 -- using MongoDB's sensor_readings and the MySQL product ranges above. They
 -- cannot be represented by a single MySQL query without copying sensor data.
+
+-- Recursive CTE: enumerate reachable warehouse destinations from one starting
+-- warehouse, to a maximum of four routes. Pick the first warehouse as the
+-- deterministic demo origin; change the subquery to a specific warehouse ID
+-- when demonstrating a chosen origin. The visited-ID path prevents cycles.
+WITH RECURSIVE route_walk AS (
+  SELECT w.warehouse_id AS origin_warehouse_id,
+         w.warehouse_id AS current_warehouse_id,
+         0 AS hops,
+         CAST(CONCAT('/', w.warehouse_id, '/') AS CHAR(2000)) AS visited_ids,
+         CAST(w.warehouse_name AS CHAR(2000)) AS warehouse_path
+  FROM warehouses AS w
+  WHERE w.warehouse_id = (SELECT MIN(warehouse_id) FROM warehouses)
+
+  UNION ALL
+
+  SELECT rw.origin_warehouse_id,
+         r.destination_warehouse_id AS current_warehouse_id,
+         rw.hops + 1,
+         CONCAT(rw.visited_ids, r.destination_warehouse_id, '/'),
+         CONCAT(rw.warehouse_path, ' -> ', destination.warehouse_name)
+  FROM route_walk AS rw
+  JOIN routes AS r ON r.source_warehouse_id = rw.current_warehouse_id
+  JOIN warehouses AS destination
+    ON destination.warehouse_id = r.destination_warehouse_id
+  WHERE rw.hops < 4
+    AND LOCATE(CONCAT('/', r.destination_warehouse_id, '/'), rw.visited_ids) = 0
+)
+SELECT rw.origin_warehouse_id, origin.warehouse_name AS origin_warehouse,
+       rw.current_warehouse_id AS destination_warehouse_id,
+       current_location.warehouse_name AS destination_warehouse,
+       rw.hops, rw.warehouse_path
+FROM route_walk AS rw
+JOIN warehouses AS origin ON origin.warehouse_id = rw.origin_warehouse_id
+JOIN warehouses AS current_location
+  ON current_location.warehouse_id = rw.current_warehouse_id
+WHERE rw.hops > 0
+ORDER BY rw.hops, rw.warehouse_path;

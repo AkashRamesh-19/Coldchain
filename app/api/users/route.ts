@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
+import type { PoolConnection } from "mysql2/promise";
 import pool from "@/lib/mysql";
 import { authorize, userRoles } from "@/lib/auth";
 
@@ -29,21 +30,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, message: "Provide a name, valid email, password of at least 12 characters, and supported role" }, { status: 400 });
   }
 
+  let connection: PoolConnection | undefined;
   try {
     const access = await authorize(request, ["ADMIN"]);
     if ("response" in access) return access.response;
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
     const passwordHash = await bcrypt.hash(body.password, 12);
-    const [result] = await pool.execute(
+    const [result] = await connection.execute(
       "INSERT INTO users (full_name, email, password_hash, role) VALUES (?, ?, ?, ?)",
       [body.full_name.trim(), body.email.trim().toLowerCase(), passwordHash, body.role],
     );
     const userId = (result as { insertId: number }).insertId;
+    if (body.role === "OPERATIONS_STAFF") {
+      await connection.execute(
+        `INSERT IGNORE INTO shipment_assignments (shipment_id, user_id, assigned_by)
+         SELECT s.shipment_id, ?, ?
+         FROM shipments AS s
+         WHERE NOT EXISTS (
+           SELECT 1 FROM non_operational_shipments AS n WHERE n.shipment_id = s.shipment_id
+         )`,
+        [userId, access.user.user_id],
+      );
+    }
+    await connection.commit();
     return NextResponse.json({ success: true, user: { user_id: userId, full_name: body.full_name.trim(), email: body.email.trim().toLowerCase(), role: body.role } }, { status: 201 });
   } catch (error) {
+    if (connection) await connection.rollback();
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ER_DUP_ENTRY") {
       return NextResponse.json({ success: false, message: "A user with that email already exists" }, { status: 409 });
     }
     console.error("Failed to create user:", error);
     return NextResponse.json({ success: false, message: "Unable to create user" }, { status: 500 });
+  } finally {
+    connection?.release();
   }
 }

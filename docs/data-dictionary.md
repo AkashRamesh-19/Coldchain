@@ -12,7 +12,7 @@ The authoritative DDL is [`database/mysql-schema.sql`](../database/mysql-schema.
 | `vehicles` | Vehicle identity, capacity, refrigeration type, and availability; number is unique and capacity positive. |
 | `users` | User identity, bcrypt password hash, role (`LOGISTICS_MANAGER`, `OPERATIONS_STAFF`, or `ADMIN`), and active flag. Email is unique. |
 | `shipments` | Shipment code, supplier, source/destination, vehicle, driver, route, planned/actual delivery times, and status. Foreign keys enforce references; CHECK constraints validate date order and distinct endpoints. |
-| `shipment_assignments` | Composite `(shipment_id,user_id)` relation assigns an operational shipment to an operations staff user, with optional assigning user and timestamp. |
+| `shipment_assignments` | Composite `(shipment_id,user_id)` relation grants an operations staff user access to an operational shipment, with optional assigning user and timestamp. Existing and new operational shipments are shared with active operations staff by default. |
 | `non_operational_shipments` | Explicit classification of excluded classroom/demo rows without deleting linked records. Exact ID/code pairs are checked by migration 001. |
 | `shipment_items` | Many-to-many shipment/product contents with quantity and unit weight; unique product per shipment and positive-value checks. |
 | `shipment_status_history` | Status transition log, timestamp, optional actor, and remarks; shipment updates are recorded by `trg_shipment_status_history`. |
@@ -25,7 +25,7 @@ The authoritative DDL is [`database/mysql-schema.sql`](../database/mysql-schema.
 - A shipment references one route, supplier, vehicle, and driver. A vehicle/driver may serve multiple shipments over time; the create API prevents reuse while another operational shipment is active.
 - Shipments and products have a many-to-many relationship through `shipment_items`.
 - A shipment has many status-history rows and alerts.
-- Users have many staff shipment assignments, may create many assignments, and may appear as status/alert actors. App checks roles and staff assignment scope; foreign keys maintain identity references.
+- Users have many staff shipment assignments, may create many assignments, and may appear as status/alert actors. The API checks staff assignment scope; active operations staff receive links to current and new operational shipments by default. Foreign keys maintain identity references.
 - MongoDB `sensor_readings.shipment_id` is an application-enforced reference to MySQL `shipments.shipment_id`; MongoDB cannot enforce a cross-database foreign key.
 
 ## Other SQL objects

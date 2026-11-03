@@ -136,7 +136,14 @@ export async function POST(request: Request) {
        VALUES (?, NULL, 'CREATED', ?, 'Initial status recorded during shipment creation')`,
       [shipmentId, access.user.user_id],
     );
-    for (const userId of [...new Set((body.assigned_user_ids ?? []) as number[])]) {
+    // Operational staff share the same dashboard data by default. Keep the
+    // assignment rows as the application's explicit access links.
+    const [activeStaffRows] = await connection.execute(
+      "SELECT user_id FROM users WHERE is_active = 1 AND role = 'OPERATIONS_STAFF'",
+    );
+    const assignedUserIds = new Set((activeStaffRows as Array<{ user_id: number }>).map((row) => row.user_id));
+    for (const userId of (body.assigned_user_ids ?? []) as number[]) assignedUserIds.add(userId);
+    for (const userId of assignedUserIds) {
       await connection.execute(
         "INSERT INTO shipment_assignments (shipment_id, user_id, assigned_by) VALUES (?, ?, ?)",
         [shipmentId, userId, access.user.user_id],

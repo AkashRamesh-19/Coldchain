@@ -11,6 +11,10 @@ const shipmentAssignmentMigration = await readFile(
   new URL("../database/migrations/002-shipment-assignments.sql", import.meta.url),
   "utf8",
 );
+const staffShipmentSharingMigration = await readFile(
+  new URL("../database/migrations/003-share-operational-shipments-with-staff.sql", import.meta.url),
+  "utf8",
+);
 
 test("schema source includes all inspected relational tables and keys", () => {
   assert.equal([...schema.matchAll(/^CREATE TABLE IF NOT EXISTS /gm)].length, 13);
@@ -62,4 +66,12 @@ test("shipment assignment migration adds only the role-scope relation", () => {
   assert.match(shipmentAssignmentMigration, /FOREIGN KEY \(`shipment_id`\)/i);
   assert.match(shipmentAssignmentMigration, /FOREIGN KEY \(`user_id`\)/i);
   assert.doesNotMatch(shipmentAssignmentMigration, /^\s*(?:DROP|DELETE|TRUNCATE|UPDATE|INSERT)\b/gmi);
+});
+
+test("staff shipment-sharing migration idempotently adds only operational access links", () => {
+  assert.match(staffShipmentSharingMigration, /INSERT\s+IGNORE\s+INTO `shipment_assignments`/i);
+  assert.match(staffShipmentSharingMigration, /u\.`role` = 'OPERATIONS_STAFF'/i);
+  assert.match(staffShipmentSharingMigration, /FROM `shipments` AS s/i);
+  assert.match(staffShipmentSharingMigration, /NOT EXISTS \([\s\S]*FROM `non_operational_shipments`/i);
+  assert.doesNotMatch(staffShipmentSharingMigration, /^\s*(?:DROP|DELETE|TRUNCATE|UPDATE)\b/gmi);
 });

@@ -111,6 +111,7 @@ export async function POST(
         shipmentId,
         readingsChecked: 0,
         alertsCreated: 0,
+        sensorReadings: [],
         message: "No sensor readings found for this shipment",
       });
     }
@@ -168,6 +169,11 @@ export async function POST(
       outOfRangeProductComparisons: productComparisonsOutOfRange,
       alertsCreated: createdAlerts.length,
       alerts: createdAlerts,
+      sensorReadings: readings.map((reading) => ({
+        timestamp: reading.timestamp,
+        temperature: reading.temperature ?? null,
+        humidity: reading.humidity ?? null,
+      })),
       limitation: "The shipment sensor is compared with each distinct product range because readings are not linked to individual shipment items.",
     });
   } catch (error) {

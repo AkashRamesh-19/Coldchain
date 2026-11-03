@@ -1,7 +1,7 @@
 
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
-import { authorize, managerAndAdmin } from "@/lib/auth";
+import { authorize, staffAndAbove } from "@/lib/auth";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -47,7 +47,7 @@ export async function PATCH(
   }
 
   try {
-    const access = await authorize(request, managerAndAdmin);
+    const access = await authorize(request, staffAndAbove);
     if ("response" in access) return access.response;
     if (body.resolved_by !== undefined && body.resolved_by !== null && body.resolved_by !== access.user.user_id) {
       return NextResponse.json({ success: false, message: "resolved_by must match the authenticated user" }, { status: 400 });

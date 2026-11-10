@@ -423,6 +423,16 @@ test("shipment creation is transactional and creates items, assignment, and init
     assigned_user_ids: [fixture.staffUserId],
   };
   const beforeCount = await adminConnection.execute("SELECT COUNT(*) AS count FROM shipments");
+  const overCapacity = await postPatch("/api/shipments", "POST", {
+    ...baseBody,
+    shipment_code: `OVER-CAPACITY-${suffix}`,
+    items: [{ product_id: fixture.productId, quantity: 800, unit_weight_kg: 2 }],
+  });
+  assert.equal(overCapacity.response.status, 409);
+  assert.match(overCapacity.body.message, /capacity/i);
+  const afterCapacityCheck = await adminConnection.execute("SELECT COUNT(*) AS count FROM shipments");
+  assert.equal(Number(afterCapacityCheck[0][0].count), Number(beforeCount[0][0].count));
+
   const rolledBack = await postPatch("/api/shipments", "POST", baseBody);
   assert.equal(rolledBack.response.status, 400);
   const afterRollback = await adminConnection.execute("SELECT COUNT(*) AS count FROM shipments");
@@ -468,6 +478,9 @@ test("catalog APIs validate allowlisted fields and protect referenced records fr
   assert.equal(row[0].city, "Updated City");
   const protectedDelete = await getJson(`/api/catalog/warehouses/${fixture.sourceWarehouseId}`, { method: "DELETE" });
   assert.equal(protectedDelete.response.status, 409);
+  const routeEndpointChange = await postPatch(`/api/catalog/routes/${fixture.routeId}`, "PATCH", { source_warehouse_id: recordId });
+  assert.equal(routeEndpointChange.response.status, 409);
+  assert.match(routeEndpointChange.body.message, /shipments reference/i);
   const removed = await getJson(`/api/catalog/warehouses/${recordId}`, { method: "DELETE" });
   assert.equal(removed.response.status, 200);
 });
@@ -480,6 +493,8 @@ test("write API routes mutate only isolated fixtures and persist the expected re
     assert.equal(first.body.success, true);
     assert.equal(first.body.readingsChecked, 3);
     assert.equal(first.body.alertsCreated, 4);
+    assert.equal(first.body.sensorReadings.length, 3);
+    assert.equal(first.body.sensorReadingsTruncated, false);
 
     const [alertsAfterFirstCheck] = await adminConnection.execute(
       `SELECT alert_type, severity, sensor_value, threshold_value, is_resolved
@@ -587,6 +602,15 @@ test("write API routes mutate only isolated fixtures and persist the expected re
     const stored = await mongoClient.db(mongoTestDatabase).collection("sensor_readings").findOne({ sensor_id: "dock-1", shipment_id: fixture.shipmentId });
     assert.equal(stored.temperature, 6);
     assert.equal(stored.humidity, 50);
+
+    const firstPage = await getJson(`${path}?limit=2&offset=0`);
+    assert.equal(firstPage.response.status, 200);
+    assert.equal(firstPage.body.readings.length, 2);
+    assert.equal(firstPage.body.hasMore, true);
+    const secondPage = await getJson(`${path}?limit=2&offset=${firstPage.body.nextOffset}`);
+    assert.equal(secondPage.response.status, 200);
+    assert.equal(secondPage.body.readings.length, 2);
+    assert.equal(secondPage.body.hasMore, false);
 
     const reports = await getJson("/api/reports");
     assert.equal(reports.response.status, 200);

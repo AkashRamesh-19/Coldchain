@@ -21,8 +21,8 @@ type ProductRow = {
 type SensorReading = {
   shipment_id: number;
   timestamp: Date | string;
-  temperature?: number | null;
-  humidity?: number | null;
+  temperature?: number | string | null;
+  humidity?: number | string | null;
 };
 
 export async function POST(
@@ -97,37 +97,35 @@ export async function POST(
 
     const db = client.db(databaseName);
 
-    const readings = (await db
+    const readings = db
       .collection<SensorReading>("sensor_readings")
       .find({ shipment_id: shipmentId })
-      .sort({ timestamp: 1 })
-      .toArray()) as SensorReading[];
+      .project({ _id: 0, shipment_id: 1, timestamp: 1, temperature: 1, humidity: 1 })
+      .sort({ timestamp: 1 });
 
-    if (readings.length === 0) {
-      await connection.commit();
-      connection.release();
-      return NextResponse.json({
-        success: true,
-        shipmentId,
-        readingsChecked: 0,
-        alertsCreated: 0,
-        sensorReadings: [],
-        message: "No sensor readings found for this shipment",
-      });
-    }
-
-    const createdAlerts: Array<{
+    type AlertCandidate = {
       product: string;
       condition: "TEMPERATURE" | "HUMIDITY";
       value: number;
       minimum: number;
       maximum: number;
       direction: "below" | "above";
-    }> = [];
+      message: string;
+      severity: "MEDIUM" | "HIGH";
+      distance: number;
+    };
+    const candidates = new Map<string, AlertCandidate>();
+    const recentReadings: Array<{ timestamp: Date | string; temperature: number | string | null; humidity: number | string | null }> = [];
+    let readingsChecked = 0;
     let readingsWithExcursions = 0;
     let productComparisonsOutOfRange = 0;
 
-    for (const reading of readings) {
+    // Stream historical readings so the request does not hold the entire
+    // telemetry history in Node memory. Keep only a small UI preview.
+    for await (const reading of readings) {
+      readingsChecked += 1;
+      recentReadings.push({ timestamp: reading.timestamp, temperature: reading.temperature ?? null, humidity: reading.humidity ?? null });
+      if (recentReadings.length > 12) recentReadings.shift();
       let readingHasExcursion = false;
       for (const product of products) {
         const checks: Array<{ condition: "TEMPERATURE" | "HUMIDITY"; value: unknown; minimum: number | null; maximum: number | null; unit: string }> = [
@@ -141,21 +139,52 @@ export async function POST(
           productComparisonsOutOfRange += 1;
           const direction = value < check.minimum ? "below" : "above";
           const message = `Product ${product.product_id} (${product.product_name}): shipment ${check.condition.toLowerCase()} is ${direction} its permitted range ${check.minimum}${check.unit} to ${check.maximum}${check.unit}`;
-          const [existingRows] = await connection.execute(
-            `SELECT alert_id FROM alerts WHERE shipment_id = ? AND alert_type = ? AND message = ? AND is_resolved = 0 LIMIT 1`,
-            [shipmentId, check.condition, message],
-          );
-          if ((existingRows as Array<{ alert_id: number }>).length > 0) continue;
-          const severity = value < check.minimum - (check.condition === "TEMPERATURE" ? 2 : 10) || value > check.maximum + (check.condition === "TEMPERATURE" ? 2 : 10) ? "HIGH" : "MEDIUM";
-          await connection.execute(
-            `INSERT INTO alerts (shipment_id, alert_type, severity, message, sensor_value, threshold_value)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [shipmentId, check.condition, severity, message, value, value < check.minimum ? check.minimum : check.maximum],
-          );
-          createdAlerts.push({ product: product.product_name, condition: check.condition, value, minimum: check.minimum, maximum: check.maximum, direction });
+          const distance = direction === "below" ? check.minimum - value : value - check.maximum;
+          const margin = check.condition === "TEMPERATURE" ? 2 : 10;
+          const severity = distance > margin ? "HIGH" : "MEDIUM";
+          const existing = candidates.get(message);
+          if (!existing || distance > existing.distance) {
+            candidates.set(message, {
+              product: product.product_name,
+              condition: check.condition,
+              value,
+              minimum: check.minimum,
+              maximum: check.maximum,
+              direction,
+              message,
+              severity,
+              distance,
+            });
+          }
         }
       }
       if (readingHasExcursion) readingsWithExcursions += 1;
+    }
+
+    const messageList = [...candidates.keys()];
+    let existingMessages = new Set<string>();
+    if (messageList.length) {
+      const placeholders = messageList.map(() => "?").join(",");
+      const [existingRows] = await connection.execute(
+        `SELECT message FROM alerts WHERE shipment_id = ? AND is_resolved = 0 AND message IN (${placeholders})`,
+        [shipmentId, ...messageList],
+      );
+      existingMessages = new Set((existingRows as Array<{ message: string }>).map((row) => row.message));
+    }
+    const newAlerts = [...candidates.values()].filter((candidate) => !existingMessages.has(candidate.message));
+    if (newAlerts.length) {
+      const values = newAlerts.map((alert) => [
+        shipmentId,
+        alert.condition,
+        alert.severity,
+        alert.message,
+        alert.value,
+        alert.direction === "below" ? alert.minimum : alert.maximum,
+      ]);
+      await connection.query(
+        "INSERT INTO alerts (shipment_id, alert_type, severity, message, sensor_value, threshold_value) VALUES ?",
+        [values],
+      );
     }
 
     await connection.commit();
@@ -164,16 +193,14 @@ export async function POST(
     return NextResponse.json({
       success: true,
       shipmentId,
-      readingsChecked: readings.length,
+      readingsChecked,
       excursionReadingCount: readingsWithExcursions,
       outOfRangeProductComparisons: productComparisonsOutOfRange,
-      alertsCreated: createdAlerts.length,
-      alerts: createdAlerts,
-      sensorReadings: readings.map((reading) => ({
-        timestamp: reading.timestamp,
-        temperature: reading.temperature ?? null,
-        humidity: reading.humidity ?? null,
-      })),
+      alertsCreated: newAlerts.length,
+      alerts: newAlerts.map(({ product, condition, value, minimum, maximum, direction }) => ({ product, condition, value, minimum, maximum, direction })),
+      sensorReadings: recentReadings,
+      sensorReadingsPreviewed: recentReadings.length,
+      sensorReadingsTruncated: readingsChecked > recentReadings.length,
       limitation: "The shipment sensor is compared with each distinct product range because readings are not linked to individual shipment items.",
     });
   } catch (error) {

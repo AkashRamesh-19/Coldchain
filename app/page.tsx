@@ -13,7 +13,7 @@ type ReportData = {
 };
 
 type TemperatureReading = { timestamp: string | Date; temperature?: number | string | null; humidity?: number | string | null };
-type TemperatureCheckResult = { readingsChecked: number; excursionReadingCount: number; alertsCreated: number; sensorReadings: TemperatureReading[] };
+type TemperatureCheckResult = { readingsChecked: number; excursionReadingCount: number; alertsCreated: number; sensorReadings: TemperatureReading[]; sensorReadingsTruncated: boolean };
 
 function DashboardContent() {
   const [reports, setReports] = useState<ReportData | null>(null);
@@ -65,6 +65,7 @@ function DashboardContent() {
         excursionReadingCount: Number(body.excursionReadingCount ?? 0),
         alertsCreated: Number(body.alertsCreated ?? 0),
         sensorReadings: Array.isArray(body.sensorReadings) ? body.sensorReadings : [],
+        sensorReadingsTruncated: Boolean(body.sensorReadingsTruncated),
       };
       setTemperatureResults((current) => ({ ...current, [shipmentId]: result }));
       setMessage(`Temperature check complete for shipment ${shipmentId}.`);
@@ -100,8 +101,8 @@ function DashboardContent() {
                 <tr><td className="px-4 py-4"><strong>{shipment.shipment_code}</strong><span className="block text-xs text-slate-500">{shipment.supplier_name}</span></td><td className="px-4 py-4">{shipment.source_warehouse} → {shipment.destination_warehouse}</td><td className="px-4 py-4">{shipment.vehicle_number}<span className="block text-xs text-slate-500">{shipment.driver_name}</span></td><td className="px-4 py-4">{shipment.status.replaceAll("_", " ")}</td><td className="px-4 py-4"><button onClick={() => void checkTemperature(shipment.shipment_id)} disabled={checking !== null} className="rounded-md bg-teal-700 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50">{checking === shipment.shipment_id ? "Checking…" : result ? "Check again" : "Check temperatures"}</button></td></tr>
                 {result && <tr><td colSpan={5} className="bg-teal-50/70 px-5 py-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div><p className="font-semibold text-slate-900">Temperature check · {shipment.shipment_code}</p><p className="mt-1 text-xs text-slate-600">{result.readingsChecked} readings checked · {result.excursionReadingCount} out-of-range readings · {result.alertsCreated} new alerts</p></div>
-                    {average !== null && <p className="rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm font-semibold text-teal-900">Average {average.toFixed(2)} °C</p>}
+                    <div><p className="font-semibold text-slate-900">Temperature check · {shipment.shipment_code}</p><p className="mt-1 text-xs text-slate-600">{result.readingsChecked} readings checked · {result.excursionReadingCount} out-of-range readings · {result.alertsCreated} new alerts{result.sensorReadingsTruncated ? " · showing latest 12 readings" : ""}</p></div>
+                    {average !== null && <p className="rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm font-semibold text-teal-900">Recent average {average.toFixed(2)} °C</p>}
                   </div>
                   {result.sensorReadings.length === 0 ? <p className="mt-3 text-sm text-slate-600">No sensor readings are available for this shipment.</p> : <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{result.sensorReadings.map((reading, index) => <div key={`${shipment.shipment_id}-${index}`} className="rounded-lg border border-teal-100 bg-white px-3 py-2.5 text-sm"><p className="text-xs text-slate-500">{formatSensorTimestamp(reading.timestamp)}</p><p className="mt-1 font-semibold text-slate-900">{reading.temperature === null || reading.temperature === undefined ? "—" : `${Number(reading.temperature).toFixed(2)} °C`}<span className="px-2 font-normal text-slate-400">·</span>{reading.humidity === null || reading.humidity === undefined ? "—" : `${Number(reading.humidity).toFixed(1)}% humidity`}</p></div>)}</div>}
                 </td></tr>}

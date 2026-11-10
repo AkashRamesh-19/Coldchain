@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 
 export type SessionUser = {
   user_id: number;
@@ -44,12 +45,12 @@ export function LoginForm({ onAuthenticated }: { onAuthenticated: (user: Session
       <div className="login-glow login-glow-two" aria-hidden="true" />
       <div className="relative mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-7xl items-center gap-10 lg:grid-cols-[1.08fr_0.92fr] lg:gap-16">
         <section className="mx-auto w-full max-w-2xl py-4 text-white lg:mx-0 lg:py-12" aria-label="Cold chain platform introduction">
-          <a href="/" className="inline-flex items-center gap-3 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2.5 text-sm font-semibold tracking-wide text-white shadow-lg shadow-slate-950/10 backdrop-blur transition hover:bg-white/10">
+          <Link href="/" className="inline-flex items-center gap-3 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2.5 text-sm font-semibold tracking-wide text-white shadow-lg shadow-slate-950/10 backdrop-blur transition hover:bg-white/10">
             <span className="grid size-9 place-items-center rounded-full bg-cyan-300 text-blue-950">
               <svg viewBox="0 0 24 24" fill="none" className="size-5" aria-hidden="true"><path d="M12 2v20M4.93 6l14.14 12M4.93 18 19.07 6M2 12h20M8.5 3.5l3.5 2 3.5-2M8.5 20.5l3.5-2 3.5 2M3.5 8.5l2 3.5-2 3.5M20.5 8.5l-2 3.5 2 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </span>
             <span>ColdChain <span className="text-cyan-200">Guardian</span></span>
-          </a>
+          </Link>
 
           <div className="mt-9 max-w-xl sm:mt-12 lg:mt-16">
             <p className="mb-4 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200"><span className="size-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.8)]" />Cold chain, in motion</p>

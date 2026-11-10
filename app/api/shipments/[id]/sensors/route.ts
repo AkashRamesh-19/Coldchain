@@ -34,6 +34,15 @@ export async function GET(
     );
   }
 
+  const searchParams = new URL(request.url).searchParams;
+  const limitValue = searchParams.get("limit");
+  const offsetValue = searchParams.get("offset");
+  const limit = limitValue === null ? 100 : Number(limitValue);
+  const offset = offsetValue === null ? 0 : Number(offsetValue);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500 || !Number.isSafeInteger(offset) || offset < 0 || offset > 100_000) {
+    return NextResponse.json({ success: false, message: "limit must be 1-500 and offset must be between 0 and 100000" }, { status: 400 });
+  }
+
   try {
     const access = await authorize(request, staffAndAbove);
     if ("response" in access) return access.response;
@@ -61,13 +70,21 @@ export async function GET(
     const readings = await db
       .collection("sensor_readings")
       .find({ shipment_id: shipmentId })
-      .sort({ timestamp: 1 })
+      .sort({ timestamp: 1, _id: 1 })
+      .skip(offset)
+      .limit(limit + 1)
       .toArray();
+    const hasMore = readings.length > limit;
+    if (hasMore) readings.pop();
 
     return NextResponse.json({
       success: true,
       shipmentId,
       count: readings.length,
+      limit,
+      offset,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
       readings,
     });
   } catch (error) {

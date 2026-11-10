@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { PoolConnection } from "mysql2/promise";
 import pool from "@/lib/mysql";
 import { authorize, managerAndAdmin } from "@/lib/auth";
 import { catalogResources, isCatalogResource, validateCatalogBody } from "@/lib/catalog.mjs";
@@ -19,6 +20,53 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     const access = await authorize(request, managerAndAdmin);
     if ("response" in access) return access.response;
     const definition = catalogResources[resource];
+    if (resource === "routes") {
+      let connection: PoolConnection | undefined;
+      try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+        const [currentRows] = await connection.execute(
+          `SELECT ${definition.fields.join(",")} FROM ${definition.table} WHERE ${definition.id} = ? FOR UPDATE`,
+          [recordId],
+        );
+        const current = (currentRows as Record<string, unknown>[])[0];
+        if (!current) {
+          await connection.rollback();
+          return NextResponse.json({ success: false, message: "Record not found" }, { status: 404 });
+        }
+        const merged = { ...current, ...(body as Record<string, unknown>) };
+        const mergedValidation = validateCatalogBody(resource, merged);
+        if (mergedValidation) {
+          await connection.rollback();
+          return NextResponse.json({ success: false, message: mergedValidation }, { status: 400 });
+        }
+        const endpointsChanged = Number(merged.source_warehouse_id) !== Number(current.source_warehouse_id) ||
+          Number(merged.destination_warehouse_id) !== Number(current.destination_warehouse_id);
+        if (endpointsChanged) {
+          const [shipments] = await connection.execute(
+            "SELECT shipment_id FROM shipments WHERE route_id = ? LIMIT 1",
+            [recordId],
+          );
+          if ((shipments as unknown[]).length > 0) {
+            await connection.rollback();
+            return NextResponse.json({ success: false, message: "Route endpoints cannot change while shipments reference this route" }, { status: 409 });
+          }
+        }
+        const fields = Object.keys(body as object);
+        const values = fields.map((field) => (body as Record<string, unknown>)[field]);
+        await connection.execute(
+          `UPDATE routes SET ${fields.map((field) => `${field} = ?`).join(", ")} WHERE route_id = ?`,
+          [...values, recordId] as (string | number | boolean | null)[],
+        );
+        await connection.commit();
+        return NextResponse.json({ success: true, message: "Catalog record updated", id: recordId });
+      } catch (error) {
+        if (connection) await connection.rollback();
+        throw error;
+      } finally {
+        connection?.release();
+      }
+    }
     const [currentRows] = await pool.execute(`SELECT ${definition.fields.join(",")} FROM ${definition.table} WHERE ${definition.id} = ?`, [recordId]);
     const current = (currentRows as Record<string, unknown>[])[0];
     if (!current) return NextResponse.json({ success: false, message: "Record not found" }, { status: 404 });

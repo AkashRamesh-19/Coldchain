@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 
 export async function GET() {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ success: false, message: "Not found" }, { status: 404 });
+  }
   try {
     const client = await clientPromise;
     const databaseName = process.env.MONGODB_DATABASE;

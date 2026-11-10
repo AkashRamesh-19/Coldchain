@@ -106,10 +106,10 @@ export async function GET(request: Request) {
     const databaseName = process.env.MONGODB_DATABASE;
     if (!databaseName) throw new Error("Missing MongoDB database configuration.");
     const shipmentIds = (operationalRows[0] as Array<{ shipment_id: number }>).map((row) => row.shipment_id);
-    const readings = shipmentIds.length ? await client.db(databaseName)
+    const readings = shipmentIds.length ? client.db(databaseName)
       .collection<SensorReading>("sensor_readings")
       .find({ shipment_id: { $in: shipmentIds } }, { projection: { _id: 0, shipment_id: 1, timestamp: 1, temperature: 1, humidity: 1 } })
-      .sort({ shipment_id: 1, timestamp: 1 }).toArray() : [];
+      .sort({ shipment_id: 1, timestamp: 1 }) : null;
     const sensorMetricsByShipment = shipmentIds.length ? await client.db(databaseName)
       .collection("sensor_readings").aggregate([
         { $match: { shipment_id: { $in: shipmentIds } } },
@@ -135,25 +135,32 @@ export async function GET(request: Request) {
       ranges.push(product);
       productRanges.set(product.shipment_id, ranges);
     }
-    const groupedReadings = new Map<number, SensorReading[]>();
-    for (const reading of readings) {
+    const temperatureTotals = new Map<number, { sum: number; count: number; excursionReadingCount: number; outOfRangeProductComparisons: number }>();
+    if (readings) for await (const reading of readings) {
       if (reading.temperature === null || reading.temperature === undefined || !Number.isFinite(Number(reading.temperature))) continue;
-      const group = groupedReadings.get(reading.shipment_id) ?? [];
-      group.push(reading);
-      groupedReadings.set(reading.shipment_id, group);
+      const temperature = Number(reading.temperature);
+      const totals = temperatureTotals.get(reading.shipment_id) ?? { sum: 0, count: 0, excursionReadingCount: 0, outOfRangeProductComparisons: 0 };
+      const ranges = productRanges.get(reading.shipment_id) ?? [];
+      let readingHasExcursion = false;
+      totals.sum += temperature;
+      totals.count += 1;
+      for (const product of ranges) {
+        if (temperature < Number(product.min_temperature) || temperature > Number(product.max_temperature)) {
+          totals.outOfRangeProductComparisons += 1;
+          readingHasExcursion = true;
+        }
+      }
+      if (readingHasExcursion) totals.excursionReadingCount += 1;
+      temperatureTotals.set(reading.shipment_id, totals);
     }
-    const temperatureByShipment = [...groupedReadings.entries()].map(([shipmentId, values]) => {
-      const temperatures = values.map((reading) => Number(reading.temperature));
-      const sum = temperatures.reduce((total, temperature) => total + temperature, 0);
+    const temperatureByShipment = [...temperatureTotals.entries()].map(([shipmentId, totals]) => {
       const ranges = productRanges.get(shipmentId) ?? [];
-      const outOfRangeProductComparisons = temperatures.reduce((count, temperature) => count + ranges.filter((product) => temperature < Number(product.min_temperature) || temperature > Number(product.max_temperature)).length, 0);
-      const excursionReadingCount = temperatures.filter((temperature) => ranges.some((product) => temperature < Number(product.min_temperature) || temperature > Number(product.max_temperature))).length;
       return {
         shipmentId,
-        averageTemperatureC: Number((sum / temperatures.length).toFixed(2)),
-        readingsCounted: temperatures.length,
-        excursionReadingCount,
-        outOfRangeProductComparisons,
+        averageTemperatureC: Number((totals.sum / totals.count).toFixed(2)),
+        readingsCounted: totals.count,
+        excursionReadingCount: totals.excursionReadingCount,
+        outOfRangeProductComparisons: totals.outOfRangeProductComparisons,
         productRangesCompared: ranges.map((product) => ({ productId: product.product_id, productName: product.product_name, minimumC: Number(product.min_temperature), maximumC: Number(product.max_temperature) })),
       };
     });

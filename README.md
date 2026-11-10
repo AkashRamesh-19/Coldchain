@@ -13,7 +13,7 @@ ColdChain Guardian has two separate data areas: operational shipment monitoring 
 
 The synopsis names PostgreSQL, while the approved Level 3 requirements allow either MySQL or PostgreSQL. This project uses MySQL because its existing tables, trigger, procedure, and data are implemented there; no PostgreSQL claim is made.
 
-See the [editable ER diagram source](docs/ERD.md), [ER diagram image](docs/ER_Diagram.png), [requirements traceability checklist](docs/requirements-traceability.md), and [verification results](docs/test-results.md) for database relationships and project evidence.
+See the [ER diagram documentation](docs/ERD.md), [conceptual Chen ER diagram](docs/ER_Diagram.png), [relational schema mapping](docs/Relational_Schema.png), [requirements traceability checklist](docs/requirements-traceability.md), and [verification results](docs/test-results.md) for database relationships and project evidence.
 
 ## Published research dataset
 
@@ -56,10 +56,10 @@ Research reports include per-shipment window counts, mean `T_mean`, raw-probe st
 
 ## Evaluation deliverables
 
-- **ER diagram:** [`docs/ER_Diagram.png`](docs/ER_Diagram.png) and its editable [Mermaid source](docs/ERD.md) show 13 relational tables (more than the five-table minimum), their keys/relationships, and the separate MongoDB collections.
+- **ER diagram:** [`docs/ER_Diagram.png`](docs/ER_Diagram.png) shows 13 relational tables (more than the five-table minimum), their keys/relationships, and the separate MongoDB collections. The accompanying [data model notes](docs/ERD.md) explain the mapping.
 - **RDBMS + NoSQL:** MySQL stores constrained shipment and alert relations; MongoDB stores sensor observations and the independent research windows. See [MongoDB data model](docs/MONGODB.md).
 - **Project demo reports:** the authenticated Reports page demonstrates live SQL aggregates (shipment status, monthly shipments, routes and alert resolution) alongside analysis calculated from the imported research collection. The SQL queries are included in [`docs/reports.sql`](docs/reports.sql).
-- **Project novelty:** a spatial excursion and completeness profile ranks the nine original strawberry-probe positions by user-bounded excursion rate and shows missing values separately. The formula and source columns are documented in [`docs/ERD.md`](docs/ERD.md) and [`docs/API.md`](docs/API.md); no LLM is used.
+- **Project novelty:** a spatial excursion and completeness profile ranks the nine original strawberry-probe positions by user-bounded excursion rate and shows missing values separately. The formula is implemented in [`lib/research-dataset.mjs`](lib/research-dataset.mjs) and described in [`docs/API.md`](docs/API.md); no LLM is used.
 
 ## Interpretation
 
@@ -74,6 +74,6 @@ Research features and labels are from the published historical benchmark. They d
 
 The SQL deliverables demonstrate normalized related tables, primary/foreign/unique/check constraints, views, a status-history trigger, an alert procedure, transactions in shipment creation, filtered multi-table reports, GROUP BY/aggregates, a correlated non-operational exclusion, and indexed lookups. MongoDB uses flexible operational observation documents, a pinned research document model, aggregation pipelines, and explicit indexes.
 
-The system accepts simulated sensor input through the authenticated sensor API; it does not require physical sensors, GPS infrastructure, live freight integrations, an LLM, or predictive ML. The application includes role-specific sign-in, an admin employee-management page, an alert-resolution page, and separate operational and research reporting. Assignment-level operation access is enforced for operational APIs. Rate limiting, multi-factor authentication, and production identity integration remain hardening work.
+The system accepts simulated sensor input through the authenticated sensor API; it does not require physical sensors, GPS infrastructure, live freight integrations, an LLM, or predictive ML. The application includes role-specific sign-in, an admin employee-management page, an alert-resolution page, and separate operational and research reporting. Assignment-level operation access is enforced for operational APIs. Login has per-process throttling (10 failed attempts per identifier and 60 per client address per 15 minutes); deployments with multiple instances should enforce a shared rate limit at the proxy or shared store. Multi-factor authentication and production identity integration remain hardening work.
 
 Research unit tests verify source IDs and timestamps, stable idempotency keys, source null handling, record counts, label counts, and aggregation results. The research importer writes only its dedicated collection and manifest. It does not seed operational data.

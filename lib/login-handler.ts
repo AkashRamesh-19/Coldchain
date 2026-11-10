@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 import { createSession, sessionCookieHeader, type AuthenticatedUser } from "@/lib/auth";
+import { checkLoginRateLimit } from "@/lib/login-rate-limit.mjs";
 
 export async function handleLogin(request: Request, audience: "admin" | "employee" | "any" = "any") {
   let body: { email?: unknown; employeeId?: unknown; password?: unknown };
@@ -12,6 +13,13 @@ export async function handleLogin(request: Request, audience: "admin" | "employe
   if (identifier.length < 1 || identifier.length > 150 || typeof body.password !== "string" || body.password.length < 1 || body.password.length > 200) {
     return NextResponse.json({ success: false, message: "Provide an email or employee ID and password" }, { status: 400 });
   }
+  const rateLimit = checkLoginRateLimit(request, identifier);
+  if (!rateLimit.allowed) {
+    const response = NextResponse.json({ success: false, message: "Too many sign-in attempts. Try again later." }, { status: 429 });
+    response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  }
   try {
     const [rows] = await pool.execute(
       `SELECT user_id, full_name, email, password_hash, role FROM users
@@ -21,7 +29,11 @@ export async function handleLogin(request: Request, audience: "admin" | "employe
     const account = (rows as Array<AuthenticatedUser & { password_hash: string }>)[0];
     const matchesAudience = audience === "any" || (audience === "admin" ? account?.role === "ADMIN" : account?.role !== "ADMIN");
     const passwordMatches = account && matchesAudience ? await bcrypt.compare(body.password, account.password_hash) : false;
-    if (!account || !passwordMatches) return NextResponse.json({ success: false, message: "Invalid credentials for this sign-in" }, { status: 401 });
+    if (!account || !passwordMatches) {
+      rateLimit.recordFailure();
+      return NextResponse.json({ success: false, message: "Invalid credentials for this sign-in" }, { status: 401 });
+    }
+    rateLimit.clearAccountBucket();
     const session = await createSession(account.user_id);
     const response = NextResponse.json({
       success: true,

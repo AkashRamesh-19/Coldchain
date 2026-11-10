@@ -4,6 +4,8 @@ import pool from "@/lib/mysql";
 import { authorize, managerAndAdmin, shipmentAccessCondition, staffAndAbove } from "@/lib/auth";
 
 const isPositiveId = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value > 0;
+const isPositiveDecimal10_2 = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) &&
+  value > 0 && value <= 99_999_999.99 && Number.isSafeInteger(Math.round(value * 100)) && Math.abs(value * 100 - Math.round(value * 100)) < 1e-7;
 const isSqlDateTime = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
   const parts = value.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
@@ -63,8 +65,8 @@ export async function POST(request: Request) {
       !isSqlDateTime(body.shipment_date) || !isSqlDateTime(body.expected_delivery) || body.expected_delivery < body.shipment_date ||
       !Array.isArray(body.items) || body.items.length < 1 || body.items.length > 100 ||
       body.items.some((item) => !item || typeof item !== "object" || !isPositiveId((item as Record<string, unknown>).product_id) ||
-        typeof (item as Record<string, unknown>).quantity !== "number" || !Number.isFinite((item as Record<string, number>).quantity) || (item as Record<string, number>).quantity <= 0 ||
-        typeof (item as Record<string, unknown>).unit_weight_kg !== "number" || !Number.isFinite((item as Record<string, number>).unit_weight_kg) || (item as Record<string, number>).unit_weight_kg <= 0) ||
+        !isPositiveDecimal10_2((item as Record<string, unknown>).quantity) ||
+        !isPositiveDecimal10_2((item as Record<string, unknown>).unit_weight_kg)) ||
       (body.assigned_user_ids !== undefined && (!Array.isArray(body.assigned_user_ids) || body.assigned_user_ids.some((id) => !isPositiveId(id))))) {
     return NextResponse.json({ success: false, message: "Shipment fields, date range, item quantities, or assignments are invalid" }, { status: 400 });
   }
@@ -86,11 +88,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Route does not match the selected warehouse endpoints" }, { status: 400 });
     }
 
-    const [vehicleRows] = await connection.execute("SELECT status FROM vehicles WHERE vehicle_id = ? FOR UPDATE", [body.vehicle_id as number]);
+    const [vehicleRows] = await connection.execute("SELECT status, capacity_kg FROM vehicles WHERE vehicle_id = ? FOR UPDATE", [body.vehicle_id as number]);
     const [driverRows] = await connection.execute("SELECT status FROM drivers WHERE driver_id = ? FOR UPDATE", [body.driver_id as number]);
-    if ((vehicleRows as Array<{ status: string }>)[0]?.status !== "AVAILABLE" || (driverRows as Array<{ status: string }>)[0]?.status !== "AVAILABLE") {
+    const vehicle = (vehicleRows as Array<{ status: string; capacity_kg: number | string }>)[0];
+    if (vehicle?.status !== "AVAILABLE" || (driverRows as Array<{ status: string }>)[0]?.status !== "AVAILABLE") {
       await connection.rollback();
       return NextResponse.json({ success: false, message: "Selected vehicle and driver must both be available" }, { status: 409 });
+    }
+    const capacityScaled = Math.round(Number(vehicle.capacity_kg) * 100) * 100;
+    let totalWeightScaled = 0;
+    let exceedsCapacity = false;
+    for (const item of body.items as Array<{ quantity: number; unit_weight_kg: number }>) {
+      const itemWeightScaled = Math.round(item.quantity * 100) * Math.round(item.unit_weight_kg * 100);
+      if (itemWeightScaled > capacityScaled - totalWeightScaled) {
+        exceedsCapacity = true;
+        break;
+      }
+      totalWeightScaled += itemWeightScaled;
+    }
+    if (exceedsCapacity) {
+      await connection.rollback();
+      return NextResponse.json({ success: false, message: "Shipment total weight exceeds the selected vehicle capacity" }, { status: 409 });
     }
     const [activeUseRows] = await connection.execute(
       `SELECT COUNT(*) AS active_count FROM shipments

@@ -17,7 +17,7 @@ All JSON errors use `{ "success": false, "message": "..." }`. IDs are positive i
 
 Roles are `ADMIN`, `LOGISTICS_MANAGER`, and `OPERATIONS_STAFF`. Managers/admins maintain the catalog and create shipments. Operations staff can see and update shipments assigned through `shipment_assignments`, record readings, run condition checks, and resolve alerts for those shipments. Existing staff receive links to current operational shipments through migration 003; new staff and new shipments are assigned automatically by the API. All operational reads require a session. Research dataset analysis is public because it uses published historical data only.
 
-The session cookie contains a cryptographically random token; MongoDB stores its SHA-256 hash and expiration, with a TTL index. Login compares the existing bcrypt password hashes. There is no default account or password in source code.
+The session cookie contains a cryptographically random token; MongoDB stores its SHA-256 hash and expiration, with a TTL index. Login compares the existing bcrypt password hashes. Failed login attempts are throttled per identifier and client address within each app process. A multi-instance deployment should also configure a shared proxy or datastore rate limit. There is no default account or password in source code.
 
 ## Shipment operations
 
@@ -34,13 +34,15 @@ Allowed status transitions: `CREATED` to `IN_TRANSIT`, `DELAYED`, or `CANCELLED`
 
 | Method and path | Access | Request / response |
 | --- | --- | --- |
-| `GET /api/shipments/{id}/sensors` | Authenticated; staff assignment enforced | `{ success, shipmentId, count, readings }`, ordered by timestamp. |
+| `GET /api/shipments/{id}/sensors` | Authenticated; staff assignment enforced | Optional `limit` (default 100, max 500) and `offset` (default 0, max 100000). Returns `{ success, shipmentId, count, limit, offset, hasMore, nextOffset, readings }`, ordered by timestamp and ID. |
 | `POST /api/shipments/{id}/sensors` | Authenticated; staff assignment enforced | One reading object or `{ "readings": [ ... ] }`, maximum 500. Each reading requires a timezone-qualified ISO-8601 `timestamp` and at least one of `temperature` (-100..100 °C), `humidity` (0..100%), `latitude` (-90..90), `longitude` (-180..180), or `battery_level` (0..100). Optional `sensor_id` identifies the sensor. Returns `{ success, shipmentId, submitted, inserted, updated }`. Shipment/sensor/timestamp makes ingestion idempotent; a repeated key replaces that reading. |
-| `POST /api/shipments/{id}/check-temperature` | Authenticated; staff assignment enforced | Empty JSON. Evaluates each reading against each carried product's temperature limits and, when both bounds exist, humidity limits. Returns `{ success, shipmentId, readingsChecked, excursionReadingCount, outOfRangeProductComparisons, alertsCreated, alerts }`. Open alerts are deduplicated by shipment, condition, product, and direction. Temperature severity is HIGH beyond a 2 °C margin; humidity severity is HIGH beyond a 10 percentage-point margin; smaller excursions are MEDIUM. |
+| `POST /api/shipments/{id}/check-temperature` | Authenticated; staff assignment enforced | Empty JSON. Streams readings against each carried product's temperature limits and, when both bounds exist, humidity limits. Returns counts for the full history, newly created deduplicated alerts, and at most the latest 12 readings as a UI preview. Open alerts are deduplicated by shipment, condition, product, and direction. Temperature severity is HIGH beyond a 2 °C margin; humidity severity is HIGH beyond a 10 percentage-point margin; smaller excursions are MEDIUM. |
 | `GET /api/alerts` | Authenticated; staff assignment enforced | `{ success, count, filters, alerts }`; each alert includes shipment status, supplier, route endpoints, vehicle, driver, and product names. Optional `status=all\|unresolved\|resolved` and positive `shipmentId` filters can be combined. |
 | `PATCH /api/alerts/{id}` | Authenticated staff, manager, or admin | Optional `{ "resolved_by": userId }`. Returns success for a newly resolved or already-resolved alert. |
 
 Mongo operational readings remain separate from research windows. Temperatures are compared with product ranges, and humidity is compared only when both product humidity limits are defined. Sensor observations attach to the shipment, not a specific shipment item; an excursion therefore means at least one product range was exceeded.
+
+The MySQL and MongoDB diagnostic endpoints are available only outside production; production requests receive 404 responses.
 
 ## Catalog management
 
